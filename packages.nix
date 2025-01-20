@@ -65,6 +65,9 @@ in
 
     devShells.default = craneLib.devShell {
       inherit (config) checks;
+      packages = with pkgs; [
+        rust-analyzer
+      ];
     };
   };
 }
