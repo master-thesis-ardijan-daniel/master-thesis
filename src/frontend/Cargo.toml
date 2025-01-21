@@ -7,5 +7,19 @@ publish = false
 authors.workspace = true
 edition.workspace = true
 
+
+# Depending on performance and how much code we have,
+# we should investigate if this option makes sense for us.
+# Leaving it on for now.
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
 [dependencies]
-wgpu.workspace = true
+wgpu = { version = "24.0.0", features = [] }
+wasm-bindgen = "0.2"
+web-sys = "0.3.77"

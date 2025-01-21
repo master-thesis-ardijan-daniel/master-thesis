@@ -28,6 +28,10 @@ let
   commonArgs = {
     inherit src;
     strictDeps = true;
+    buildInputs = with pkgs; [
+      lld
+      wasm-bindgen-cli
+    ];
   };
 
   crateArgs =
@@ -67,6 +71,7 @@ in
       inherit (config) checks;
       packages = with pkgs; [
         rust-analyzer
+        wasm-pack 
       ];
     };
   };
