@@ -8,7 +8,7 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-    let router = Router::new().fallback_service(ServeDir::new("../frontend/assets"));
+    let router = Router::new().fallback_service(ServeDir::new(env!("ASSETS_DIR")));
 
     axum::serve(listener, router.layer(TraceLayer::new_for_http()))
         .await
