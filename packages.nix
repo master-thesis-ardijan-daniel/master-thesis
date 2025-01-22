@@ -62,11 +62,18 @@ in
       workspace-fmt = craneLib.cargoFmt { inherit src; };
 
       workspace-clippy = craneLib.cargoClippy (
-        commonArgs
-        // {
+        commonArgs // {
           inherit cargoArtifacts;
 
           cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          ASSETS_DIR = "";
+        }
+      );
+
+      unitTests = craneLib.cargoNextest (
+        commonArgs // {
+          inherit cargoArtifacts;
+          cargoNextestPartitionsExtraArgs = "--no-tests=pass";
           ASSETS_DIR = "";
         }
       );
@@ -81,6 +88,7 @@ in
         cargoExtraArgs = "--package=backend";
 
         ASSETS_DIR = config.packages.frontend;
+
       });
 
 
