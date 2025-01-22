@@ -73,7 +73,9 @@ in
       unitTests = craneLib.cargoNextest (
         commonArgs // {
           inherit cargoArtifacts;
-          cargoNextestPartitionsExtraArgs = "--no-tests=pass";
+            partitions = 1;
+            partitionType = "count";
+          cargoNextestExtraArgs = "--no-tests=pass";
           ASSETS_DIR = "";
         }
       );
