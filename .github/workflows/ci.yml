@@ -1,0 +1,15 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Run Nix checks
+        run: nix flake check --keep-going --show-trace --print-build-logs
