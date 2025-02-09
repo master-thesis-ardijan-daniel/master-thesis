@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use wgpu::{core::present::ResolvedSurfaceOutput, Surface};
+use wgpu::{core::present::ResolvedSurfaceOutput, rwh::WebCanvasWindowHandle, Surface};
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -7,6 +7,8 @@ use winit::{
     platform::web::WindowExtWebSys,
     window::{Window, WindowBuilder},
 };
+
+mod events;
 
 #[wasm_bindgen]
 extern "C" {
@@ -23,16 +25,20 @@ pub async fn run() {
         .build(&event_loop)
         .expect("Could not create window");
 
-    web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|doc| {
-            let map_div = doc.get_element_by_id("map_canvas")?;
-            map_div
-                .append_child(&web_sys::Element::from(window.canvas()?))
-                .ok()?;
-            Some(())
-        })
-        .expect("Unable to create canvas");
+    let canvas = {
+        let map_div = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|doc| doc.get_element_by_id("map_canvas"))
+            .unwrap();
+
+        let canvas = web_sys::Element::from(window.canvas().expect("could not create canvas"));
+
+        map_div.append_child(&canvas).unwrap();
+
+        canvas
+    };
+
+    let mouse_move = events::mouse_move::MouseMove::new(&canvas);
 
     use winit::dpi::PhysicalSize;
     let _ = window.request_inner_size(PhysicalSize::new(450, 400));
