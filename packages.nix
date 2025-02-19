@@ -120,6 +120,7 @@ in
       packages = with pkgs; [
         nixd
         rust-analyzer
+        wgsl-analyzer
       ];
 
       shellHook = ''
