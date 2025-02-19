@@ -20,7 +20,7 @@ let
       fileset = lib.fileset.unions [
         (craneLib.fileset.commonCargoSources root)
         (lib.fileset.fileFilter
-          (file: lib.any file.hasExt [ "html" "scss" "js" ])
+          (file: lib.any file.hasExt [ "html" "scss" "js" "wgsl" ])
           root
         )
       ];
@@ -112,6 +112,7 @@ in
       packages = with pkgs; [
         nixd
         rust-analyzer
+        wgsl-analyzer
       ];
 
       shellHook = ''
