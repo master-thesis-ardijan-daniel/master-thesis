@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 use winit::{
+    dpi::PhysicalSize,
     event::*,
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
@@ -9,12 +10,17 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowExtWebSys;
 
-mod state;
-use state::State;
+pub mod state;
+pub use state::*;
 
-#[wasm_bindgen]
-extern "C" {
-    fn alert(s: &str);
+#[cfg(feature = "debug")]
+fn init_debug() {
+    use env_logger;
+    use log::Level;
+    //env_logger::init();
+
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    console_log::init_with_level(Level::Warn).expect("Unable to init console_log");
 }
 
 #[wasm_bindgen(start)]
@@ -41,7 +47,6 @@ pub async fn run() {
             .expect("added canvas to map element");
     }
 
-    use winit::dpi::PhysicalSize;
     let _ = window.request_inner_size(PhysicalSize::new(450, 400));
 
     let mut state = State::new(&window).await;
@@ -96,16 +101,4 @@ pub async fn run() {
         },
         _ => {}
     });
-}
-
-// use version 29 of winit then
-
-#[cfg(feature = "debug")]
-fn init_debug() {
-    use env_logger;
-    use log::Level;
-    //env_logger::init();
-
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(Level::Warn).expect("Unable to init console_log");
 }
