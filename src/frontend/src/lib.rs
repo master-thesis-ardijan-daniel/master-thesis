@@ -1,4 +1,5 @@
 use wasm_bindgen::prelude::*;
+use web_time::Instant;
 use winit::{
     dpi::PhysicalSize,
     event::*,
@@ -12,6 +13,7 @@ use winit::platform::web::WindowExtWebSys;
 
 pub mod state;
 pub use state::*;
+pub mod camera;
 
 #[cfg(feature = "debug")]
 fn init_debug() {
@@ -19,7 +21,7 @@ fn init_debug() {
     use log::Level;
     //env_logger::init();
 
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    console_error_panic_hook::set_once();
     console_log::init_with_level(Level::Warn).expect("Unable to init console_log");
 }
 
@@ -47,10 +49,12 @@ pub async fn run() {
             .expect("added canvas to map element");
     }
 
-    let _ = window.request_inner_size(PhysicalSize::new(450, 400));
+    let _ = window.request_inner_size(PhysicalSize::new(1000, 1000));
 
     let mut state = State::new(&window).await;
     let mut surface_configured = false;
+
+    let mut last_render = Instant::now();
 
     let _ = event_loop.run(move |event, control_flow| match event {
         // Dont use run, move over to spawn
@@ -61,7 +65,11 @@ pub async fn run() {
                     return;
                 }
 
-                state.update();
+                let now = Instant::now();
+                let duration = now - last_render;
+                last_render = now;
+                state.update(duration);
+
                 match state.render() {
                     Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
