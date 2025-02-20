@@ -14,58 +14,5 @@
   </body>
   <script>
 
-  //-------------------------- Web Worker -----------------------
-  const workerCode = '
-  self.addEventListener("message", function (event) {
-      fetch_image(event.data.url)
-  });
-
-  function fetch_image(url){
-    fetch(url)
-      .then(response => {
-          if (!response.ok) {
-              console.error(`Error worker thread could not load the image: ${response.status}`);
-              return null;
-          }
-        let data = response.arrayBuffer;
-        if data!==null {
-          self.postMessage({ type: "image_loaded", url: url, data: new uint8Array(data) });
-          console.log(`Worker: Image loaded and sent back for ${url}`);
-        }
-      })
-  }
-  ';
-  // ----------------------------------------------------------
-  
-  
-  const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
-  const worker = new Worker(URL.createObjectURL(workerBlob));
-
-  let imageCache = new Map();
-
-  worker.addEventListener("message", (event) => {
-    console.log(`Received message from worker: ${event.data}`);
-    //Null is checked before triggering the event, so this should allways contain something.
-    imageCache.set(event.data.url,event.data.data);
-  });
-
-
-  function loadImage(url) {
-    worker.postMessage({
-      type: "load_image",
-      url: url,
-    });
-  }
-
-  function getImageData(url) {
-    let data = imageCache.get(url);
-
-    if (data !== null) {
-      imageCache.delete(url);
-    }
-
-    return imageCache;
-  }
-
   </script>
 </html>

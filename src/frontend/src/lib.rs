@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use gloo::net::http::Request;
+use wasm_bindgen::convert::OptionFromWasmAbi;
 use wasm_bindgen::prelude::*;
 use web_sys::js_sys::{self, Uint8Array};
 use wgpu::{core::present::ResolvedSurfaceOutput, util::RenderEncoder, FragmentState, Surface};
@@ -16,7 +18,7 @@ use winit::{
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Request, RequestInit, RequestMode, Response};
+use web_sys;
 
 pub mod state;
 pub use state::*;
@@ -31,15 +33,20 @@ fn init_debug() {
     console_log::init_with_level(Level::Warn).expect("Unable to init console_log");
 }
 
-#[wasm_bindgen]
-extern "C" {
-    fn alert(s: &str);
-
-    #[wasm_bindgen(js_name = "getImageData")]
-    fn js_get_image_data(url: &str) -> Uint8Array;
-
-    #[wasm_bindgen(js_name = "loadImage")]
-    fn js_load_image(url: &str);
+// Hente bilde fra url
+// Bruk fetch
+// helst async (sjekk i ettertid at kjøretid ikke eksploderer)
+// binde et stort buffer, som kan brukes til å bytte ut teksutrer.
+//
+//
+pub async fn download_image(url: &str) -> Vec<u8> {
+    Request::get(url)
+        .send()
+        .await
+        .unwrap()
+        .binary()
+        .await
+        .unwrap()
 }
 
 #[wasm_bindgen(start)]
@@ -67,7 +74,10 @@ pub async fn run() {
 
     let mut state = State::new(&window).await;
     let mut surface_configured = false;
-    // alert("IRAN 2");
+
+    let mut texture_buffer: Vec<Vec<u8>> = vec![];
+
+    let image_data = download_image("hello_world.png").await;
 
     let _ = event_loop.run(move |event, control_flow| match event {
         // Dont use run, move over to spawn

@@ -1,3 +1,5 @@
+use crate::download_image;
+use image::GenericImageView;
 use wasm_bindgen::prelude::*;
 use wgpu::util::DeviceExt;
 use wgpu::{core::present::ResolvedSurfaceOutput, util::RenderEncoder, FragmentState, Surface};
@@ -205,6 +207,58 @@ impl<'a> State<'a> {
             index_buffer,
             num_indices: INDICES.len() as u32,
         }
+    }
+
+    async fn bind_texture(&self) {
+        let image_data = download_image("hello_world.png").await;
+        let diffuse_image = image::load_from_memory(&image_data).unwrap();
+        let rgba_data = diffuse_image.to_rgba8();
+        let dimensions = diffuse_image.dimensions();
+
+        let texture_size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 1,
+        };
+
+        let diffuse_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("testing Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &diffuse_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &rgba_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * dimensions.0),
+                rows_per_image: Some(dimensions.1),
+            },
+            texture_size,
+        );
+
+        let diffuse_texture_view =
+            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: todo!(),
+            address_mode_v: todo!(),
+            address_mode_w: todo!(),
+            mag_filter: todo!(),
+            min_filter: todo!(),
+            mipmap_filter: todo!(),
+            ..Default::default()
+        });
     }
 
     pub fn window(&self) -> &Window {
