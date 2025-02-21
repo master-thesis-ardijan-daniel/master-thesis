@@ -70,8 +70,7 @@ pub async fn run() {
             Some(())
         })
         .expect("Unable to create canvas");
-
-    let _ = window.request_inner_size(PhysicalSize::new(450, 400));
+    let _ = window.request_inner_size(PhysicalSize::new(1000, 1000));
 
     let mut state = State::new(&window).await;
     let mut surface_configured = false;

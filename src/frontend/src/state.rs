@@ -60,7 +60,14 @@ impl CameraUniform {
 
     fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
         self.view_position = camera.position.to_homogeneous().into();
+
         self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
+        // #[cfg(feature = "debug")]
+        // {
+        //     log::warn!("proj: {:#?}", projection.calc_matrix());
+
+        //     log::warn!("cam: {:#?}", camera.calc_matrix());
+        // }
     }
 }
 
@@ -117,6 +124,11 @@ impl<'a> State<'a> {
     pub async fn new(window: &'a Window) -> State<'a> {
         let size = window.inner_size();
 
+        #[cfg(feature = "debug")]
+        {
+            log::warn!("size:  {:#?}", size);
+        }
+
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::GL,
             ..Default::default()
@@ -138,7 +150,7 @@ impl<'a> State<'a> {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    required_features: wgpu::Features::empty(), // Add any genericlly available features.
+                    required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
                     ..Default::default()
                 },
@@ -187,8 +199,14 @@ impl<'a> State<'a> {
         };
 
         let camera = camera::Camera::new((0., 5., 10.), cgmath::Deg(-90.), cgmath::Deg(-20.));
-        let projection =
-            camera::Projection::new(config.width, config.height, cgmath::Deg(45.), 0.1, 100.);
+
+        #[cfg(feature = "debug")]
+        {
+            log::warn!("config_width:  {}", config.width);
+            log::warn!("config_height:  {}", config.height);
+        }
+
+        let projection = camera::Projection::new(450, 450, cgmath::Deg(20.), 0.1, 100.);
         let camera_controller = camera::CameraController::new(4., 0.4);
 
         let mut camera_uniform = CameraUniform::new();
@@ -418,7 +436,7 @@ impl<'a> State<'a> {
                 ..
             } => {
                 // #[cfg(feature = "debug")]
-                gloo::console::log!("Key pressed: ", format!("{:#?}", key));
+                // log::warn!("Key pressed: {:#?}", key);
                 self.camera_controller.process_keyboard(*key, *state)
             }
             _ => false,
@@ -469,6 +487,11 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            // #[cfg(feature = "debug")]
+            // {
+            // log::warn!("cam x: {}", self.camera.position.x);
+            // log::warn!("cam y: {}", self.camera.position.y);
+            // }
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);

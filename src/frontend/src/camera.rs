@@ -164,13 +164,12 @@ impl CameraController {
             Vector3::new(pitch_cos * yaw_cos, pitch_sin, pitch_cos * yaw_sin).normalize();
         camera.position += scrollward * self.scroll * self.speed * self.sensitivity * duration;
 
-        self.scroll = 0.;
-
         camera.position.y += (self.amount_up - self.amount_down) * self.speed * duration;
 
         camera.yaw += Rad(self.rotate_horizontal) * self.sensitivity * duration;
         camera.pitch += Rad(-self.rotate_vertical) * self.sensitivity * duration;
 
+        self.scroll = 0.;
         self.rotate_horizontal = 0.;
         self.rotate_vertical = 0.;
 
@@ -179,5 +178,13 @@ impl CameraController {
         } else if camera.pitch > Rad(SAFE_FRAC_PI_2) {
             camera.pitch = Rad(SAFE_FRAC_PI_2);
         }
+
+        // #[cfg(feature = "debug")]
+        // {
+        //     log::warn!("cam x: {:?}", camera.position.x);
+        //     log::warn!("cam y: {:?}", camera.position.y);
+        //     log::warn!("cam yaw: {:?}", camera.yaw);
+        //     log::warn!("cam pitch: {:?}", camera.pitch);
+        // }
     }
 }
