@@ -254,7 +254,8 @@ impl<'a> State<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::descriptor()],
+                // buffers: &[Vertex::descriptor()],
+                buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(FragmentState {
@@ -495,9 +496,9 @@ impl<'a> State<'a> {
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            //render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            //render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw(0..(20 * 30), 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

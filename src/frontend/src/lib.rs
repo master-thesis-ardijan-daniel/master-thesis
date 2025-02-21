@@ -1,9 +1,6 @@
-use std::collections::HashMap;
-use std::thread;
 use web_time::{Duration, Instant};
 
 use gloo::net::http::Request;
-use wasm_bindgen::convert::OptionFromWasmAbi;
 use wasm_bindgen::prelude::*;
 use web_sys::js_sys::{self, Uint8Array};
 use wgpu::{core::present::ResolvedSurfaceOutput, util::RenderEncoder, FragmentState, Surface};
@@ -16,8 +13,6 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
 use web_sys;
 
 pub mod state;
