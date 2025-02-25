@@ -2,7 +2,7 @@ struct Camera {
     view_pos: vec4<f32>,
     view_proj: mat4x4<f32>,
 }
-
+ 
 @group(1) @binding(0)
 var<uniform> camera: Camera;
 
@@ -33,18 +33,18 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    let v_idx = index / u32(SLICES); // Stack index (latitude)
-    let u_idx = index % u32(SLICES); // Slice index (longitude)
+    let stack_index = index / u32(SLICES); // Stack index (latitude)
+    let slice_index = index % u32(SLICES); // Slice index (longitude)
 
-    let v = f32(v_idx) / STACKS;
-    let u = f32(u_idx) / SLICES;
+    let v = f32(stack_index) / STACKS;
+    let u = f32(slice_index) / SLICES;
 
-    let phi = v * PI;           // Latitude angle
-    let theta = u * 2.0 * PI;   // Longitude angle
+    let phi = PI/2. - PI*f32(stack_index)/f32(STACKS);           // Latitude angle
+    let theta = 2.0 * PI*f32(slice_index)/f32(SLICES);   // Longitude angle
 
-    let x = RADIUS * sin(phi) * cos(theta);
-    let y = RADIUS * sin(theta);
-    let z = RADIUS * cos(phi) * cos(theta);
+    let x = RADIUS * cos(phi) * cos(theta);
+    let y = RADIUS * cos(phi) * sin(theta);
+    let z = RADIUS * sin(phi);
 
     let world_position = vec4<f32>(x, y, z, 1.0);
     // Transform to clip space
