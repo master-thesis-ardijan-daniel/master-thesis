@@ -69,7 +69,8 @@ pub struct State<'a> {
 
     pub camera: camera::Camera,
     pub projection: camera::Projection,
-    camera_controller: camera::CameraController,
+    pub mouse_pressed: bool,
+    pub camera_controller: camera::CameraController,
     camera_bind_group: wgpu::BindGroup,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -265,6 +266,7 @@ impl<'a> State<'a> {
             index_buffer,
             num_indices: INDICES.len() as u32,
 
+            mouse_pressed: false,
             camera,
             projection,
             camera_controller,
@@ -298,6 +300,10 @@ impl<'a> State<'a> {
                     },
                 ..
             } => self.camera_controller.process_keyboard(*key, *state),
+            WindowEvent::MouseInput { state, .. } => {
+                self.mouse_pressed = state.is_pressed();
+                true
+            }
             _ => false,
         }
     }
