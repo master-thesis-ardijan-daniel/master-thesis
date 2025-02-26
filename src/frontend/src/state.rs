@@ -87,8 +87,8 @@ pub struct State<'a> {
 
     pub camera: camera::Camera,
     pub projection: camera::Projection,
-    mouse_pressed: bool,
-    camera_controller: camera::CameraController,
+    pub mouse_pressed: bool,
+    pub camera_controller: camera::CameraController,
     camera_bind_group: wgpu::BindGroup,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -439,6 +439,10 @@ impl<'a> State<'a> {
                 // #[cfg(feature = "debug")]
                 // log::warn!("Key pressed: {:#?}", key);
                 self.camera_controller.process_keyboard(*key, *state)
+            }
+            WindowEvent::MouseInput { state, .. } => {
+                self.mouse_pressed = state.is_pressed();
+                true
             }
             _ => false,
         }
