@@ -58,6 +58,15 @@ pub async fn run() {
 
     let _ = event_loop.run(move |event, control_flow| match event {
         // Dont use run, move over to spawn
+        Event::DeviceEvent {
+            event: DeviceEvent::MouseMotion { delta },
+            ..
+        } => {
+            if state.mouse_pressed {
+                state.camera_controller.process_mouse(delta.0, delta.1);
+            }
+        }
+
         Event::WindowEvent { event, .. } if !state.input(&event) => match event {
             WindowEvent::RedrawRequested => {
                 state.window().request_redraw();
