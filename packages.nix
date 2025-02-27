@@ -11,35 +11,39 @@ let
       targets = [ "wasm32-unknown-unknown" ];
     });
 
-  filesetForCrate = crate: lib.fileset.toSource {
-    root = ./.;
-    fileset = lib.fileset.unions [
-      ./Cargo.toml
-      ./Cargo.lock
-      (lib.fileset.fileFilter
-        (file: lib.any file.hasExt [ "html" "css" "js" ])
-        crate
-      )
-      (craneLib.fileset.commonCargoSources crate)
-    ];
-  };
-
-  src = craneLib.cleanCargoSource ./.;
-
-  cargoArtifacts = craneLib.buildDepsOnly {
-    inherit src;
-  };
-
-  cargoArtifactsWasm = craneLib.buildDepsOnly {
-    inherit src;
-
-    CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-    cargoExtraArgs = "--package=frontend";
-  };
+  src =
+    let
+      root = ./.;
+    in
+    lib.fileset.toSource {
+      inherit root;
+      fileset = lib.fileset.unions [
+        (craneLib.fileset.commonCargoSources root)
+        (lib.fileset.fileFilter
+          (file: lib.any file.hasExt [ "html" "scss" "js" ])
+          root
+        )
+      ];
+    };
 
   commonArgs = {
     inherit src;
     strictDeps = true;
+    doCheck = false;
+  };
+
+  native = rec {
+    args = commonArgs;
+    cargoArtifacts = craneLib.buildDepsOnly args;
+  };
+
+  wasm = rec {
+    args = commonArgs // {
+      cargoExtraArgs = "--package=frontend --locked";
+
+      CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+    };
+    cargoArtifacts = craneLib.buildDepsOnly args;
   };
 
   crateArgs =
@@ -47,11 +51,8 @@ let
       toplevel = src;
     in
     src: commonArgs // {
-      inherit cargoArtifacts;
       inherit (craneLib.crateNameFromCargoToml { src = toplevel; }) version;
       inherit (craneLib.crateNameFromCargoToml { inherit src; }) pname;
-
-      src = filesetForCrate src;
     };
 in
 {
@@ -59,21 +60,23 @@ in
     checks = {
       inherit (config.packages) backend frontend;
 
-      workspace-fmt = craneLib.cargoFmt { inherit src; };
+      thesis-fmt = craneLib.cargoFmt { inherit src; };
 
-      workspace-clippy = craneLib.cargoClippy (
-        commonArgs // {
-          inherit cargoArtifacts;
-
+      thesis-clippy = craneLib.cargoClippy (
+        native.args // {
+          inherit (native) cargoArtifacts;
           cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+
           ASSETS_DIR = "";
         }
       );
 
-      unitTests = craneLib.cargoNextest (
-        commonArgs // {
-          inherit cargoArtifacts;
+      thesis-nextest = craneLib.cargoNextest (
+        native.args // {
+          inherit (native) cargoArtifacts;
           cargoNextestExtraArgs = "--no-tests=pass";
+          doCheck = true;
+
           ASSETS_DIR = "";
         }
       );
@@ -82,34 +85,23 @@ in
     packages = {
       default = config.packages.backend;
 
-      backend = craneLib.buildPackage (crateArgs ./src/backend // {
-        inherit cargoArtifacts;
+      backend = craneLib.buildPackage (
+        crateArgs ./src/backend // {
+          inherit (native) cargoArtifacts;
 
-        cargoExtraArgs = "--package=backend";
-
-        ASSETS_DIR = config.packages.frontend;
-
-      });
-
+          ASSETS_DIR = config.packages.frontend;
+        }
+      );
 
       frontend = craneLib.buildTrunkPackage (
-        crateArgs ./src/frontend //
-        {
-          cargoArtifacts = cargoArtifactsWasm;
+        crateArgs ./src/frontend // wasm.args // {
+          inherit (wasm) cargoArtifacts;
 
-          wasm-bindgen-cli = pkgs.wasm-bindgen-cli.override {
-            version = "0.2.100";
-            hash = "sha256-3RJzK7mkYFrs7C/WkhW9Rr4LdP5ofb2FdYGz1P7Uxog=";
-            cargoHash = "sha256-tD0OY2PounRqsRiFh8Js5nyknQ809ZcHMvCOLrvYHRE=";
-          };
+          wasm-bindgen-cli = pkgs.wasm-bindgen-cli_0_2_100;
 
           preBuild = ''
             cd src/frontend
           '';
-
-          cargoExtraArgs = "--package=frontend";
-
-          CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
         }
       );
     };
