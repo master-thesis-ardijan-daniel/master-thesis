@@ -14,40 +14,53 @@ var<uniform> camera: Camera;
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
-};
+}
 
 const PI: f32 = 3.14159265359;
-const STACKS: f32 = 20.0;   // Latitude divisions
-const SLICES: f32 = 40.0;   // Longitude divisions
-const RADIUS: f32 = 2.0;    // Sphere radius
+const ROWS: f32 = 10.0;
+const COLUMNS: f32 = 10.0;
+const RADIUS: f32 = 2.0;
 
 @vertex
-fn vs_main(
-    @builtin(vertex_index) index: u32,
-) -> VertexOutput {
+fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
     var out: VertexOutput;
 
-    let stack_index = index / u32(SLICES); // Stack index (latitude)
-    let slice_index = index % u32(SLICES); // Slice index (longitude)
+    let triangle_index = index / 3u;
+    let vertex_in_triangle = index % 3u;
 
-    let v = f32(stack_index) / STACKS;
-    let u = f32(slice_index) / SLICES;
+    let row = triangle_index / u32(COLUMNS);
+    let col = triangle_index % u32(COLUMNS);
 
-    let phi = PI/2. - PI*f32(stack_index)/f32(STACKS);           // Latitude angle
-    let theta = 2.0 * PI*f32(slice_index)/f32(SLICES);   // Longitude angle
+    var v_offsets: array<f32, 3>;
+    var u_offsets: array<f32, 3>;
+
+    if (vertex_in_triangle == 0u) {
+        v_offsets = array<f32, 3>(0.0, 1.0, 0.0);
+        u_offsets = array<f32, 3>(0.0, 0.0, 1.0);
+    } else if (vertex_in_triangle == 1u) {
+        v_offsets = array<f32, 3>(1.0, 1.0, 1.0);
+        u_offsets = array<f32, 3>(0.0, 1.0, 1.0);
+    } else {
+        v_offsets = array<f32, 3>(0.0, 1.0, 1.0);
+        u_offsets = array<f32, 3>(0.0, 1.0, 0.0);
+    }
+
+    let v = (f32(row) / ROWS) + v_offsets[vertex_in_triangle] / ROWS;
+    let u = (f32(col) / COLUMNS) + u_offsets[vertex_in_triangle] / COLUMNS;
+
+    let phi = PI * (v - 0.5);
+    let theta = 2.0 * PI * u;
 
     let x = RADIUS * cos(phi) * cos(theta);
     let y = RADIUS * cos(phi) * sin(theta);
     let z = RADIUS * sin(phi);
 
     let world_position = vec4<f32>(x, y, z, 1.0);
-    // Transform to clip space
     out.clip_position = camera.view_proj * world_position;
     out.tex_coords = vec2<f32>(u, v);
 
     return out;
 }
-
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {

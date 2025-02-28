@@ -357,7 +357,7 @@ impl<'a> State<'a> {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw(0..(20 * 30), 0..1);
+            render_pass.draw(0..(10 * 3 * 10), 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
