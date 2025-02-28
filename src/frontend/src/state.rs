@@ -1,5 +1,5 @@
 use crate::camera;
-use cgmath::{Matrix4, SquareMatrix};
+use glam::{Mat4, Vec3};
 use web_time::Duration;
 use wgpu::{util::DeviceExt, FragmentState};
 use winit::{event::*, keyboard::PhysicalKey, window::Window};
@@ -43,14 +43,14 @@ impl CameraUniform {
     fn new() -> Self {
         Self {
             view_position: [0.; 4],
-            view_proj: Matrix4::identity().into(),
+            view_proj: Mat4::IDENTITY.to_cols_array_2d(),
         }
     }
 
     fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
-        self.view_position = camera.position.to_homogeneous().into();
+        self.view_position = camera.position.extend(1.).to_array();
 
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
+        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).to_cols_array_2d();
     }
 }
 
@@ -168,10 +168,14 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
-        let camera = camera::Camera::new((0., 5., 10.), cgmath::Deg(-90.), cgmath::Deg(-20.));
+        let camera = camera::Camera::new(
+            Vec3::new(0., 5., 10.),
+            (-90.0_f32).to_radians(),
+            -20.0_f32.to_radians(),
+        );
 
-        let projection = camera::Projection::new(450, 450, cgmath::Deg(20.), 0.1, 100.);
-        let camera_controller = camera::CameraController::new(4., 2.5);
+        let projection = camera::Projection::new(450, 450, (60.0_f32).to_radians(), 0.1, 100.);
+        let camera_controller = camera::CameraController::new(1., 0.2);
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
