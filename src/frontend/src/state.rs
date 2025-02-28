@@ -171,7 +171,7 @@ impl<'a> State<'a> {
         let camera = camera::Camera::new((0., 5., 10.), cgmath::Deg(-90.), cgmath::Deg(-20.));
 
         let projection = camera::Projection::new(450, 450, cgmath::Deg(20.), 0.1, 100.);
-        let camera_controller = camera::CameraController::new(4., 0.4);
+        let camera_controller = camera::CameraController::new(4., 2.5);
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
@@ -357,7 +357,7 @@ impl<'a> State<'a> {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw(0..(10 * 3 * 10), 0..1);
+            render_pass.draw(0..(100 * 2 * 3 * 100), 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
