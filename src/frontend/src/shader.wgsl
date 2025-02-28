@@ -20,7 +20,7 @@ struct VertexOutput {
 const PI: f32 = 3.14159265359;
 const ROWS: f32 = 100.0;   // Latitude divisions
 const COLUMNS: f32 = 100.0;   // Longitude divisions
-const RADIUS: f32 = 3.0;    // Sphere radius
+const RADIUS: f32 = 20.0;    // Sphere radius
 
 
 @vertex

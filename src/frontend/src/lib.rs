@@ -3,7 +3,7 @@ use web_time::Instant;
 use winit::{
     dpi::PhysicalSize,
     event::*,
-    event_loop::EventLoop,
+    event_loop::{DeviceEvents, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::WindowBuilder,
 };
@@ -65,6 +65,13 @@ pub async fn run() {
             if state.mouse_pressed {
                 state.camera_controller.process_mouse(delta.0, delta.1);
             }
+        }
+
+        Event::DeviceEvent {
+            event: DeviceEvent::MouseWheel { delta },
+            ..
+        } => {
+            state.camera_controller.process_scroll(&delta);
         }
 
         Event::WindowEvent { event, .. } if !state.input(&event) => match event {

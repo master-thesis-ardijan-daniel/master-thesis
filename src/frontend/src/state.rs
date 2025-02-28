@@ -174,8 +174,16 @@ impl<'a> State<'a> {
             -20.0_f32.to_radians(),
         );
 
-        let projection = camera::Projection::new(450, 450, (60.0_f32).to_radians(), 0.1, 100.);
-        let camera_controller = camera::CameraController::new(1., 0.2);
+        let projection = camera::Projection::new(
+            // config.width,
+            // config.height,
+            450,
+            450,
+            (60.0_f32).to_radians(),
+            1.,
+            100.,
+        );
+        let camera_controller = camera::CameraController::new(1., 1.5);
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
