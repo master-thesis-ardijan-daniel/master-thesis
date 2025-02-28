@@ -2,10 +2,11 @@ use crate::{
     camera, safe_get_subdivision_level,
     types::{Icosphere, Point},
 };
-use cgmath::{Matrix4, SquareMatrix};
 use web_time::Duration;
 use wgpu::{util::DeviceExt, FragmentState};
-use winit::{event::*, keyboard::PhysicalKey, window::Window};
+use winit::window::Window;
+
+mod input;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -37,23 +38,18 @@ impl Vertex {
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    view_position: [f32; 4],
+pub struct CameraUniform {
     view_proj: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
-    fn new() -> Self {
+    pub fn update_view_projection(
+        camera: &camera::Camera,
+        projection: &camera::Projection,
+    ) -> Self {
         Self {
-            view_position: [0.; 4],
-            view_proj: Matrix4::identity().into(),
+            view_proj: (projection.calc_matrix() * camera.calc_matrix()).to_cols_array_2d(),
         }
-    }
-
-    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
-        self.view_position = camera.position.to_homogeneous().into();
-
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
     }
 }
 
@@ -70,13 +66,10 @@ pub struct State<'a> {
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
 
-    pub camera: camera::Camera,
-    pub projection: camera::Projection,
     pub mouse_pressed: bool,
     pub camera_controller: camera::CameraController,
     earth: Icosphere,
     camera_bind_group: wgpu::BindGroup,
-    camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
 }
 
@@ -194,13 +187,15 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
-        let camera = camera::Camera::new((0., 1., 1.), cgmath::Deg(-90.), cgmath::Deg(-20.));
+        let camera = camera::Camera::new(20.);
 
-        let projection = camera::Projection::new(450, 450, cgmath::Deg(20.), 0.1, 100.);
-        let camera_controller = camera::CameraController::new(4., 2.5);
+        let projection =
+            camera::Projection::new(size.width, size.height, (60.0_f32).to_radians(), 0.01, 100.);
 
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera, &projection);
+        let camera_controller =
+            camera::CameraController::new(1., 1., 5., 50., 3., projection, camera);
+
+        let camera_uniform = camera_controller.update_view_projection();
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera buffer"),
@@ -294,11 +289,8 @@ impl<'a> State<'a> {
             num_indices: lines.len() as u32,
             mouse_pressed: false,
             earth: icosphere,
-            camera,
-            projection,
             camera_controller,
             camera_bind_group,
-            camera_uniform,
             camera_buffer,
         }
     }
@@ -313,37 +305,18 @@ impl<'a> State<'a> {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-        }
-    }
-
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        physical_key: PhysicalKey::Code(key),
-                        state,
-                        ..
-                    },
-                ..
-            } => self.camera_controller.process_keyboard(*key, *state),
-            WindowEvent::MouseInput { state, .. } => {
-                self.mouse_pressed = state.is_pressed();
-                true
-            }
-            _ => false,
+            self.camera_controller
+                .resize(new_size.width, new_size.height);
         }
     }
 
     pub fn update(&mut self, duration: Duration) {
-        self.camera_controller
-            .update_camera(&mut self.camera, duration);
-        self.camera_uniform
-            .update_view_proj(&self.camera, &self.projection);
+        self.camera_controller.update_camera(duration);
+        let camera_uniform = self.camera_controller.update_view_projection();
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[camera_uniform]),
         );
     }
 
