@@ -5,7 +5,7 @@ pub const PHI: f32 = 1.618033988749894848204586834365638118_f32;
 pub fn subdivide_icosphere(vertecies: &[[f32; 3]], faces: &[[usize; 3]]) {}
 
 pub fn make_rotated_icosahedron() -> ([[f32; 3]; 12], [[usize; 3]; 20]) {
-    let d = 1. + PHI.powi(2);
+    let d = (1. + PHI.powi(2)).sqrt();
     let pentagram_height = 1.0 / d;
     let pentagram_radius = PHI / d;
 
