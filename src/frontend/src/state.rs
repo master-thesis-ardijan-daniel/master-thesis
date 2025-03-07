@@ -1,4 +1,4 @@
-use crate::camera;
+use crate::{camera, sphere::make_rotated_icosahedron};
 use cgmath::{Matrix4, SquareMatrix};
 use web_time::Duration;
 use wgpu::{util::DeviceExt, FragmentState};
@@ -12,24 +12,24 @@ struct Vertex {
 }
 
 impl Vertex {
-    // fn descriptor() -> wgpu::VertexBufferLayout<'static> {
-    //     wgpu::VertexBufferLayout {
-    //         array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-    //         step_mode: wgpu::VertexStepMode::Vertex,
-    //         attributes: &[
-    //             wgpu::VertexAttribute {
-    //                 offset: 0,
-    //                 shader_location: 0,
-    //                 format: wgpu::VertexFormat::Float32x3,
-    //             },
-    //             wgpu::VertexAttribute {
-    //                 offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-    //                 shader_location: 1,
-    //                 format: wgpu::VertexFormat::Float32x3,
-    //             },
-    //         ],
-    //     }
-    // }
+    fn descriptor() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
 }
 
 #[repr(C)]
@@ -76,31 +76,6 @@ pub struct State<'a> {
     camera_buffer: wgpu::Buffer,
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-        color: [0.5, 0.0, 0.5],
-    }, // A
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-        color: [0.5, 0.0, 0.5],
-    }, // B
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-        color: [0.5, 0.0, 0.5],
-    }, // C
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-        color: [0.5, 0.0, 0.5],
-    }, // D
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-        color: [0.5, 0.0, 0.5],
-    }, // E
-];
-
-const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
-
 impl<'a> State<'a> {
     pub async fn new(window: &'a Window) -> State<'a> {
         let size = window.inner_size();
@@ -135,16 +110,32 @@ impl<'a> State<'a> {
             .await
             .unwrap();
 
+        let (icosahedron_vert_coords, icosahedron_faces) = make_rotated_icosahedron();
+        let mut icosahedorn_vertecies = vec![];
+        for vc in icosahedron_vert_coords {
+            icosahedorn_vertecies.push(Vertex {
+                position: vc,
+                color: [0.5, 0., 0.5],
+            });
+        }
+
+        let mut indicies = icosahedron_faces
+            .as_flattened()
+            .iter()
+            .map(|x| u16::try_from(*x).unwrap())
+            .collect::<Vec<u16>>();
+        indicies.push(0);
+
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
+            contents: bytemuck::cast_slice(&icosahedorn_vertecies),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(&indicies),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -168,7 +159,7 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
-        let camera = camera::Camera::new((0., 5., 10.), cgmath::Deg(-90.), cgmath::Deg(-20.));
+        let camera = camera::Camera::new((0., 1., 1.), cgmath::Deg(-90.), cgmath::Deg(-20.));
 
         let projection = camera::Projection::new(450, 450, cgmath::Deg(20.), 0.1, 100.);
         let camera_controller = camera::CameraController::new(4., 2.5);
@@ -218,8 +209,8 @@ impl<'a> State<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                // buffers: &[Vertex::descriptor()],
-                buffers: &[],
+                buffers: &[Vertex::descriptor()],
+                // buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(FragmentState {
@@ -263,10 +254,9 @@ impl<'a> State<'a> {
             window,
             pipeline,
             vertex_buffer,
-            num_vertices: VERTICES.len() as u32,
+            num_vertices: icosahedron_vert_coords.len() as u32,
             index_buffer,
-            num_indices: INDICES.len() as u32,
-
+            num_indices: icosahedron_faces.len() as u32 * 3,
             mouse_pressed: false,
             camera,
             projection,
@@ -341,9 +331,9 @@ impl<'a> State<'a> {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.,
-                            g: 0.,
-                            b: 0.,
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.1,
                             a: 1.,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -357,7 +347,7 @@ impl<'a> State<'a> {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw(0..(100 * 2 * 3 * 100), 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

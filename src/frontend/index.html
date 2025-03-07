@@ -6,10 +6,117 @@
     <title>Lets test WASM!</title>
   </head>
   <body>
-  <h1>Hello World!</h1>
-  <div id="map_canvas">
-  
-  </div>
+    <div>
+      <h2>Debug info:</h2>
+      <p>FPS: <span id="fpsDisplay">Calculating...</span></p>
+      <p>Startup Time: <span id="startupTime">Waiting...</span></p>
+      <p>Subdivision Levels: <input type="range" id="subdivisionSlider" min="0" max="20" value="0" step="1"> <span id="subdivisionValue">0</span></p>
+
+      <canvas id="perfCanvas" width="600" height="300"></canvas>
+    </div>
+
+    <div id="map_canvas">
+    </div>
+    
+    <script>
+      const canvas = document.getElementById('perfCanvas');
+      const ctx = canvas.getContext('2d');
+      const fpsDisplay = document.getElementById('fpsDisplay');
+      const startupTimeDisplay = document.getElementById('startupTime');
+      const subdivisionSlider = document.getElementById('subdivisionSlider');
+      const subdivisionValue = document.getElementById('subdivisionValue');
+      subdivisionSlider.addEventListener('input', () => {
+          subdivisionValue.textContent = subdivisionSlider.value;
+      });
+      
+      let dataPoints = [];
+      const maxDataPoints = 60; // 60 seconds of data
+
+      function get_subdivision_level(){
+        return subdivisionValue;
+      }
+
+      function handle_new_perf_data(eventMap) {
+          <!-- console.log(eventMap); -->
+          const highest_frame_time_last_second = eventMap.get("highest_frame_time")*1000;
+          const lowest_frame_time_last_second = eventMap.get("lowest_frame_time")*1000;
+          const avg_frame_time = eventMap.get("avg_frame_time")*1000;
+          startupTimeDisplay.textContent=eventMap.get("startup_time")*1000 + " ms";
+
+          if (dataPoints.length >= 100) {
+              dataPoints.shift(); // Remove oldest entry
+          }
+          dataPoints.push({ highest_frame_time_last_second, lowest_frame_time_last_second, avg_frame_time });
+          
+          const fps = avg_frame_time > 0 ? (1000 /avg_frame_time).toFixed(2) : 'N/A';
+          fpsDisplay.textContent = fps + ' FPS';
+          
+          drawGraph();
+      }
+
+      function drawGraph() {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          const padding = 40;
+          const graphHeight = canvas.height - 2 * padding;
+          const graphWidth = canvas.width - 2 * padding;
+          const maxFrameTime = Math.max(...dataPoints.map(d => d.highest_frame_time_last_second), 16.67);
+
+          // Draw Y-axis scale
+          ctx.fillStyle = 'black';
+          ctx.font = '12px Arial';
+          for (let i = 0; i <= 5; i++) {
+              let value = (maxFrameTime / 5) * i;
+              let y = canvas.height - padding - (value / maxFrameTime) * graphHeight;
+              ctx.fillText(value.toFixed(2) + ' ms', 5, y);
+              ctx.beginPath();
+              ctx.moveTo(padding, y);
+              ctx.lineTo(canvas.width - padding, y);
+              ctx.strokeStyle = '#ddd';
+              ctx.stroke();
+          }
+
+          // Draw legend
+          ctx.fillStyle = 'red';
+          ctx.fillText('Highest Frame Time', canvas.width - 140, 20);
+          ctx.fillStyle = 'blue';
+          ctx.fillText('Lowest Frame Time', canvas.width - 140, 35);
+          ctx.fillStyle = 'green';
+          ctx.fillText('Avg Frame Time', canvas.width - 140, 50);
+
+          // Draw highest frame time (red)
+          ctx.beginPath();
+          ctx.strokeStyle = 'red';
+          dataPoints.forEach((d, i) => {
+              const x = padding + (i / maxDataPoints) * graphWidth;
+              const y = canvas.height - padding - (d.highest_frame_time_last_second / maxFrameTime) * graphHeight;
+              ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+
+          // Draw lowest frame time (blue)
+          ctx.beginPath();
+          ctx.strokeStyle = 'blue';
+          dataPoints.forEach((d, i) => {
+              const x = padding + (i / maxDataPoints) * graphWidth;
+              const y = canvas.height - padding - (d.lowest_frame_time_last_second / maxFrameTime) * graphHeight;
+              ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+
+          // Draw avg frame time (green)
+          ctx.beginPath();
+          ctx.strokeStyle = 'green';
+          dataPoints.forEach((d, i) => {
+              const x = padding + (i / maxDataPoints) * graphWidth;
+              const y = canvas.height - padding - (d.avg_frame_time / maxFrameTime) * graphHeight;
+              ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+      }
+
+    </script>
+    
     <link data-trunk rel="rust" href="Cargo.toml" data-wasm-opt="4"/>
   </body>
 </html>
