@@ -1,8 +1,15 @@
-use crate::{camera, sphere::make_rotated_icosahedron};
+use crate::{
+    camera,
+    sphere::{make_rotated_icosahedron, subdivide_icosphere},
+};
 use cgmath::{Matrix4, SquareMatrix};
 use web_time::Duration;
 use wgpu::{util::DeviceExt, FragmentState};
-use winit::{event::*, keyboard::PhysicalKey, window::Window};
+use winit::{
+    event::*,
+    keyboard::PhysicalKey,
+    window::{CursorIconParseError, Window},
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -111,20 +118,40 @@ impl<'a> State<'a> {
             .unwrap();
 
         let (icosahedron_vert_coords, icosahedron_faces) = make_rotated_icosahedron();
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+
         let mut icosahedorn_vertecies = vec![];
-        for vc in icosahedron_vert_coords {
+        for vc in icosahedron_vert_coords.clone() {
             icosahedorn_vertecies.push(Vertex {
-                position: vc,
+                position: vc.to_array(),
                 color: [0.5, 0., 0.5],
             });
         }
 
         let mut indicies = icosahedron_faces
+            .clone()
             .as_flattened()
             .iter()
             .map(|x| u16::try_from(*x).unwrap())
             .collect::<Vec<u16>>();
         indicies.push(0);
+
+        let mut lines = vec![];
+        for face in icosahedron_faces.clone() {
+            lines.push(face[0] as u16);
+            lines.push(face[1] as u16);
+            lines.push(face[1] as u16);
+            lines.push(face[2] as u16);
+            lines.push(face[2] as u16);
+            lines.push(face[0] as u16);
+        }
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -135,7 +162,7 @@ impl<'a> State<'a> {
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(&indicies),
+            contents: bytemuck::cast_slice(&lines),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -227,7 +254,7 @@ impl<'a> State<'a> {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
+                topology: wgpu::PrimitiveTopology::LineList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
@@ -256,7 +283,7 @@ impl<'a> State<'a> {
             vertex_buffer,
             num_vertices: icosahedron_vert_coords.len() as u32,
             index_buffer,
-            num_indices: icosahedron_faces.len() as u32 * 3,
+            num_indices: icosahedron_faces.len() as u32 * 3 * 2,
             mouse_pressed: false,
             camera,
             projection,
