@@ -117,15 +117,30 @@ impl<'a> State<'a> {
             .await
             .unwrap();
 
+        let dist_function = |v: &mut crate::types::Point| {
+            let vec_length = (v.x().powi(2) + v.y().powi(2) + v.z().powi(2)).sqrt();
+            *v /= vec_length;
+        };
+
         let (icosahedron_vert_coords, icosahedron_faces) = make_rotated_icosahedron();
         let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
         let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
         let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
         let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, |x| ());
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
+        let (icosahedron_vert_coords, icosahedron_faces) =
+            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
 
         let mut icosahedorn_vertecies = vec![];
         for vc in icosahedron_vert_coords.clone() {
