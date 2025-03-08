@@ -13,8 +13,8 @@ use winit::{
 use winit::platform::web::WindowExtWebSys;
 
 pub mod sphere;
-
 pub mod state;
+pub mod types;
 pub use state::*;
 pub mod camera;
 

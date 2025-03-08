@@ -1,8 +1,84 @@
-use std::f32::consts::PI;
+use std::{collections::HashMap, f32::consts::PI};
+
+use crate::types::Point;
+use std::hash::{Hash, Hasher};
+use wgpu::core::pipeline::ResolvedVertexState;
+use winit::platform::wayland::EventLoopWindowTargetExtWayland;
 
 pub const PHI: f32 = 1.618033988749894848204586834365638118_f32;
 
-pub fn subdivide_icosphere(vertecies: &[[f32; 3]], faces: &[[usize; 3]]) {}
+type Vertex = Point;
+type Edge = [Vertex; 2];
+
+// This function assumes the original vertecies are placed where they need to be.
+// It will only apply the transformation function on the new vertecies.
+// Vertex order matters, this algorithm is intended for
+// counter clockwise ordered face vertex definition.
+pub fn subdivide_icosphere<F>(
+    vertecies: &[Vertex],
+    faces: &[[usize; 3]],
+    mut transformation_function: F,
+) -> (Vec<Vertex>, Vec<[usize; 3]>)
+where
+    F: FnMut(&mut Vertex),
+{
+    // Transformation may be expensive and thus we want to avoid it if we can.
+    // This cache only works as long as we use the even vertecies as keys
+    // otherwise we can get rounding errors, thus its important not to mutate them
+    // or change the algorithm in such a way that they change.
+    let mut edges_with_odd_verts_cache: HashMap<[Vertex; 2], usize> = HashMap::new();
+
+    let sort_edge = |a: Vertex, b: Vertex| -> [Vertex; 2] {
+        if a.coordinates < b.coordinates {
+            return [a, b];
+        }
+        [b, a]
+    };
+
+    let mut new_vertecies = vertecies.to_vec();
+
+    // Creates a new vertex, moves the vertex and adds it to cache
+    let mut create_new_vertex_on_edge_center = |a: Vertex, b: Vertex| -> usize {
+        // Edges are independent of vertex order,
+        // thus we sort the vertecies in order to use it as key
+        let key = sort_edge(a, b);
+        if let Some(i) = edges_with_odd_verts_cache.get(&key) {
+            return *i;
+        }
+
+        let mut new_vert = (b - a) / 2. + a;
+        // Move the vertex in 3d space
+        transformation_function(&mut new_vert);
+
+        let new_vertex_index = new_vertecies.len();
+        new_vertecies.push(new_vert);
+
+        edges_with_odd_verts_cache.insert(key, new_vertex_index);
+        new_vertex_index
+    };
+
+    let mut new_faces = vec![];
+
+    for i in 0..faces.len() {
+        let face = faces[i];
+        // Original vertecies
+        let even_1 = face[0];
+        let even_2 = face[1];
+        let even_3 = face[2];
+
+        // New vertecies
+        let odd_1 = create_new_vertex_on_edge_center(vertecies[even_1], vertecies[even_2]);
+        let odd_2 = create_new_vertex_on_edge_center(vertecies[even_2], vertecies[even_3]);
+        let odd_3 = create_new_vertex_on_edge_center(vertecies[even_3], vertecies[even_1]);
+
+        new_faces.push([even_1, odd_1, odd_3]);
+        new_faces.push([even_2, odd_2, odd_1]);
+        new_faces.push([even_3, odd_3, odd_2]);
+        new_faces.push([odd_1, odd_2, odd_3]);
+    }
+
+    (new_vertecies, new_faces)
+}
 
 pub fn make_rotated_icosahedron() -> ([[f32; 3]; 12], [[usize; 3]; 20]) {
     let d = (1. + PHI.powi(2)).sqrt();
