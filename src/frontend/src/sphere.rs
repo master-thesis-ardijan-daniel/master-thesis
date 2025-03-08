@@ -1,9 +1,6 @@
 use std::{collections::HashMap, f32::consts::PI};
 
 use crate::types::Point;
-use std::hash::{Hash, Hasher};
-use wgpu::core::pipeline::ResolvedVertexState;
-use winit::platform::wayland::EventLoopWindowTargetExtWayland;
 
 pub const PHI: f32 = 1.618033988749894848204586834365638118_f32;
 
@@ -80,15 +77,15 @@ where
     (new_vertecies, new_faces)
 }
 
-pub fn make_rotated_icosahedron() -> ([[f32; 3]; 12], [[usize; 3]; 20]) {
+pub fn make_rotated_icosahedron() -> ([Vertex; 12], [[usize; 3]; 20]) {
     let d = (1. + PHI.powi(2)).sqrt();
     let pentagram_height = 1.0 / d;
     let pentagram_radius = PHI / d;
 
-    let mut vertecies: [[f32; 3]; 12] = [[0., 0., 0.]; 12];
+    let mut vertecies: [Vertex; 12] = [[0., 0., 0.].into(); 12];
     let mut faces: [[usize; 3]; 20] = [[0, 0, 0]; 20];
 
-    vertecies[0] = [0., 0., 1.]; // Top vertex
+    vertecies[0] = [0., 0., 1.].into(); // Top vertex
 
     // Calculate the next 5 vertecies position
     for i in 0..5 {
@@ -96,7 +93,7 @@ pub fn make_rotated_icosahedron() -> ([[f32; 3]; 12], [[usize; 3]; 20]) {
         let x = pentagram_radius * angle.cos();
         let y = pentagram_radius * angle.sin();
         let z = pentagram_height;
-        vertecies[i + 1] = [x, y, z];
+        vertecies[i + 1] = [x, y, z].into();
     }
 
     faces[0] = [0, 2, 1];
@@ -107,10 +104,10 @@ pub fn make_rotated_icosahedron() -> ([[f32; 3]; 12], [[usize; 3]; 20]) {
 
     //The bottom set of vertecies are a mirror along xy axis of the top.
     for v in 1..6 {
-        let x = vertecies[v][0];
-        let y = vertecies[v][1];
+        let x = vertecies[v].x();
+        let y = vertecies[v].y();
         let z = -pentagram_height;
-        vertecies[v + 5] = [x, y, z];
+        vertecies[v + 5] = [x, y, z].into();
     }
 
     //Fill in the central faces
@@ -130,7 +127,7 @@ pub fn make_rotated_icosahedron() -> ([[f32; 3]; 12], [[usize; 3]; 20]) {
     faces[14] = [5, 6, 10];
 
     //Add bottom vertex and fill in the rest of the faces.
-    vertecies[11] = [0., 0., -1.];
+    vertecies[11] = [0., 0., -1.].into();
 
     faces[15] = [5 + 1, 5 + 2, 11];
     faces[16] = [5 + 2, 5 + 3, 11];
