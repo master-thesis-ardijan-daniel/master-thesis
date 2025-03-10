@@ -1,5 +1,6 @@
 use crate::{
-    camera, safe_get_subdivision_level,
+    camera::CameraState,
+    safe_get_subdivision_level,
     types::{Icosphere, Point},
 };
 use web_time::Duration;
@@ -36,23 +37,6 @@ impl Vertex {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
-}
-
-impl CameraUniform {
-    pub fn update_view_projection(
-        camera: &camera::Camera,
-        projection: &camera::Projection,
-    ) -> Self {
-        Self {
-            view_proj: (projection.calc_matrix() * camera.calc_matrix()).to_cols_array_2d(),
-        }
-    }
-}
-
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>,
     pub device: wgpu::Device,
@@ -66,11 +50,10 @@ pub struct State<'a> {
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
 
-    pub mouse_pressed: bool,
-    pub camera_controller: camera::CameraController,
+    camera_state: CameraState,
+
+    pub delta: Duration,
     earth: Icosphere,
-    camera_bind_group: wgpu::BindGroup,
-    camera_buffer: wgpu::Buffer,
 }
 
 impl<'a> State<'a> {
@@ -187,49 +170,11 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
-        let camera = camera::Camera::new(20.);
-
-        let projection =
-            camera::Projection::new(size.width, size.height, (60.0_f32).to_radians(), 0.01, 100.);
-
-        let camera_controller =
-            camera::CameraController::new(1., 1., 5., 50., 3., projection, camera);
-
-        let camera_uniform = camera_controller.update_view_projection();
-
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("camera_bind_group_layout"),
-            });
-
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-            label: Some("camera_bind_group"),
-        });
+        let camera_state = CameraState::create(&device, &size);
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&camera_bind_group_layout],
+            bind_group_layouts: &[&camera_state.bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -287,11 +232,9 @@ impl<'a> State<'a> {
             num_vertices: icosphere_verts.len() as u32,
             index_buffer,
             num_indices: lines.len() as u32,
-            mouse_pressed: false,
             earth: icosphere,
-            camera_controller,
-            camera_bind_group,
-            camera_buffer,
+            camera_state,
+            delta: Duration::ZERO,
         }
     }
 
@@ -305,19 +248,14 @@ impl<'a> State<'a> {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-            self.camera_controller
+            self.camera_state
+                .controller
                 .resize(new_size.width, new_size.height);
         }
     }
 
-    pub fn update(&mut self, duration: Duration) {
-        self.camera_controller.update_camera(duration);
-        let camera_uniform = self.camera_controller.update_view_projection();
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[camera_uniform]),
-        );
+    pub fn update(&mut self) {
+        self.camera_state.update(&self.queue, self.delta);
     }
 
     pub fn check_earth_subid_level(&mut self) {
@@ -404,7 +342,7 @@ impl<'a> State<'a> {
                 timestamp_writes: None,
             });
             render_pass.set_pipeline(&self.pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.camera_state.bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
