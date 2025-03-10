@@ -1,6 +1,6 @@
 use crate::{
     camera,
-    sphere::{make_rotated_icosahedron, subdivide_icosphere},
+    types::{make_rotated_icosahedron, subdivide_icosphere, Icosphere, Point},
 };
 use cgmath::{Matrix4, SquareMatrix};
 use web_time::Duration;
@@ -117,56 +117,33 @@ impl<'a> State<'a> {
             .await
             .unwrap();
 
-        let dist_function = |v: &mut crate::types::Point| {
+        fn vert_transform(mut v: Point) -> Point {
             let vec_length = (v.x().powi(2) + v.y().powi(2) + v.z().powi(2)).sqrt();
-            *v /= vec_length;
-        };
+            v /= vec_length;
 
-        let (icosahedron_vert_coords, icosahedron_faces) = make_rotated_icosahedron();
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
-        let (icosahedron_vert_coords, icosahedron_faces) =
-            subdivide_icosphere(&icosahedron_vert_coords, &icosahedron_faces, dist_function);
+            v
+        }
+
+        let mut icosphere = Icosphere::new(1., Point::new_zero(), 10, 0, vert_transform);
+
+        let (icosphere_verts, icosphere_lines) =
+            icosphere.get_subdivison_level_vertecies_and_lines(1);
 
         let mut icosahedorn_vertecies = vec![];
-        for vc in icosahedron_vert_coords.clone() {
+        for vc in icosphere_verts.clone() {
             icosahedorn_vertecies.push(Vertex {
                 position: vc.to_array(),
                 color: [0.5, 0., 0.5],
             });
         }
 
-        let mut indicies = icosahedron_faces
+        let mut lines = icosphere_lines
             .clone()
             .as_flattened()
             .iter()
             .map(|x| u16::try_from(*x).unwrap())
             .collect::<Vec<u16>>();
-        indicies.push(0);
-
-        let mut lines = vec![];
-        for face in icosahedron_faces.clone() {
-            lines.push(face[0] as u16);
-            lines.push(face[1] as u16);
-            lines.push(face[1] as u16);
-            lines.push(face[2] as u16);
-            lines.push(face[2] as u16);
-            lines.push(face[0] as u16);
-        }
+        lines.push(0);
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -296,9 +273,9 @@ impl<'a> State<'a> {
             window,
             pipeline,
             vertex_buffer,
-            num_vertices: icosahedron_vert_coords.len() as u32,
+            num_vertices: icosphere_verts.len() as u32,
             index_buffer,
-            num_indices: icosahedron_faces.len() as u32 * 3 * 2,
+            num_indices: lines.len() as u32,
             mouse_pressed: false,
             camera,
             projection,
