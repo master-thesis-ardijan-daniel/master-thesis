@@ -12,7 +12,6 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowExtWebSys;
 
-pub mod sphere;
 pub mod state;
 pub mod types;
 pub use state::*;
