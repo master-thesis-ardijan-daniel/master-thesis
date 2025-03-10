@@ -181,9 +181,9 @@ pub async fn run() {
                 }
 
                 let now = Instant::now();
-                let duration = now - last_render;
+                state.delta = now - last_render;
                 last_render = now;
-                state.update(duration);
+                state.update();
                 perf_metrics.time_new_frame();
                 perf_metrics.send_perf_event();
 

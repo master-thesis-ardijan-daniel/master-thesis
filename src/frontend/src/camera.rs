@@ -6,6 +6,11 @@ pub use controller::CameraController;
 mod projection;
 pub use projection::Projection;
 
+mod state;
+pub use state::CameraState;
+
+mod uniform;
+
 #[derive(Debug)]
 pub struct Camera {
     pub orientation: Quat,

@@ -14,7 +14,7 @@ impl State<'_> {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.camera_controller.rotating = state.is_pressed();
+                self.camera_state.controller.rotating = state.is_pressed();
                 self.window.set_cursor_icon(if state.is_pressed() {
                     CursorIcon::Grabbing
                 } else {
@@ -37,12 +37,12 @@ impl State<'_> {
                 position: PhysicalPosition { x, y },
                 ..
             } => {
-                self.camera_controller.process_cursor_moved(*x, *y);
+                self.camera_state.controller.process_cursor_moved(*x, *y);
                 true
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                self.camera_controller.process_mouse_wheel(delta);
+                self.camera_state.controller.process_mouse_wheel(delta);
                 true
             }
 

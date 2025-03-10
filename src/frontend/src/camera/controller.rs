@@ -1,4 +1,4 @@
-use crate::CameraUniform;
+use crate::camera::uniform::CameraUniform;
 
 use super::{Camera, Projection};
 use glam::Vec2;
@@ -74,7 +74,7 @@ impl CameraController {
         self.camera.radius = (self.camera.radius - scroll_factor).clamp(self.min, self.max);
 
         if self.rotating {
-            let sensitivity = self.sensitivity * (self.camera.radius / 100.).sqrt(); // * duration;
+            let sensitivity = self.sensitivity * (self.camera.radius / 100.).sqrt() * duration;
             self.camera.rotate(
                 self.last_position,
                 self.current_position,
