@@ -10,7 +10,6 @@ pub struct Icosphere {
     pub center: Point,
     pub radius: f32,
     pub vertecies: Vec<Point>, // Holds the vertecies for each subdivion level
-    pub current_subdiv_level: usize,
     pub faces: Vec<Vec<[usize; 3]>>, //Holds the face indexes for each subdivison level
     vertex_subdiv_index: Vec<usize>,
     max_subdiv_level: usize,
@@ -92,7 +91,6 @@ impl Icosphere {
             faces: vec![faces.to_vec()],
             max_subdiv_level,
             min_subdiv_level,
-            current_subdiv_level: min_subdiv_level,
             transformation_function: vertex_transformation_function,
         };
 
@@ -156,7 +154,7 @@ impl Icosphere {
         let mut edges_with_odd_verts_cache: HashMap<[Vertex; 2], usize> = HashMap::new();
 
         let sort_edge = |a: Vertex, b: Vertex| -> [Vertex; 2] {
-            if a.coordinates < b.coordinates {
+            if a.to_array() < b.to_array() {
                 return [a, b];
             }
             [b, a]
