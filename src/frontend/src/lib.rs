@@ -183,6 +183,11 @@ pub async fn run() {
                 let now = Instant::now();
                 state.delta = now - last_render;
                 last_render = now;
+
+                if let Some(v) = safe_get_subdivision_level() {
+                    state.earth_state.set_subdivision_level(v);
+                }
+
                 state.update();
                 perf_metrics.time_new_frame();
                 perf_metrics.send_perf_event();
