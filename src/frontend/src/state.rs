@@ -1,15 +1,11 @@
 use crate::{
-    camera,
-    types::{make_rotated_icosahedron, subdivide_icosphere, Icosphere, Point},
+    camera, safe_get_subdivision_level,
+    types::{Icosphere, Point},
 };
 use cgmath::{Matrix4, SquareMatrix};
 use web_time::Duration;
 use wgpu::{util::DeviceExt, FragmentState};
-use winit::{
-    event::*,
-    keyboard::PhysicalKey,
-    window::{CursorIconParseError, Window},
-};
+use winit::{event::*, keyboard::PhysicalKey, window::Window};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -78,6 +74,7 @@ pub struct State<'a> {
     pub projection: camera::Projection,
     pub mouse_pressed: bool,
     pub camera_controller: camera::CameraController,
+    earth: Icosphere,
     camera_bind_group: wgpu::BindGroup,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -120,17 +117,36 @@ impl<'a> State<'a> {
         fn vert_transform(mut v: Point) -> Point {
             let vec_length = (v.x().powi(2) + v.y().powi(2) + v.z().powi(2)).sqrt();
             v /= vec_length;
-
-            v
+            // const EARTH_RADIUS: 6378.137;
+            const EARTH_RADIUS: f32 = 1.;
+            // const FLATTENING: f32 = 1. / 298.257;
+            const FLATTENING: f32 = 0.3;
+            // // get polar from cartesian
+            let (lat, _lon, _rng) = v.to_lat_lon_range();
+            // // get ellipsoid radius from polar
+            let a = EARTH_RADIUS;
+            let f = FLATTENING;
+            let b = a * (1.0 - f);
+            let sa = a * lat.sin();
+            let cb = b * lat.cos();
+            let r = a * b / (sa.powi(2) + cb.powi(2)).sqrt();
+            // #[cfg(feature = "debug")]
+            // {
+            //     log::warn!("lat {:?}", lat * 180. / PI);
+            //     log::warn!("lon {:?}", lon * 180. / PI);
+            //     log::warn!("v {:?}", v);
+            //     log::warn!("r {:?}", r);
+            // }
+            v * r
         }
 
-        let mut icosphere = Icosphere::new(1., Point::new_zero(), 10, 0, vert_transform);
+        let mut icosphere = Icosphere::new(1., Point::new_zero(), 6, 0, vert_transform);
 
         let (icosphere_verts, icosphere_lines) =
-            icosphere.get_subdivison_level_vertecies_and_lines(1);
+            icosphere.get_subdivison_level_vertecies_and_lines(0);
 
         let mut icosahedorn_vertecies = vec![];
-        for vc in icosphere_verts.clone() {
+        for vc in icosphere_verts {
             icosahedorn_vertecies.push(Vertex {
                 position: vc.to_array(),
                 color: [0.5, 0., 0.5],
@@ -277,6 +293,7 @@ impl<'a> State<'a> {
             index_buffer,
             num_indices: lines.len() as u32,
             mouse_pressed: false,
+            earth: icosphere,
             camera,
             projection,
             camera_controller,
@@ -330,7 +347,58 @@ impl<'a> State<'a> {
         );
     }
 
+    pub fn check_earth_subid_level(&mut self) {
+        let frontend_subdiv_level = if let Some(v) = safe_get_subdivision_level() {
+            if v == self.earth.current_subdiv_level {
+                return;
+            }
+            v
+        } else {
+            return;
+        };
+
+        let (icosphere_verts, icosphere_lines) = self
+            .earth
+            .get_subdivison_level_vertecies_and_lines(frontend_subdiv_level);
+
+        let mut icosahedorn_vertecies = vec![];
+        for vc in icosphere_verts {
+            icosahedorn_vertecies.push(Vertex {
+                position: vc.to_array(),
+                color: [0.5, 0., 0.5],
+            });
+        }
+
+        let mut lines = icosphere_lines
+            .clone()
+            .as_flattened()
+            .iter()
+            .map(|x| u16::try_from(*x).unwrap())
+            .collect::<Vec<u16>>();
+        lines.push(0);
+
+        self.num_vertices = icosphere_verts.len() as u32;
+        self.earth.current_subdiv_level = frontend_subdiv_level;
+        self.num_indices = lines.len() as u32;
+        self.vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex buffer"),
+                contents: bytemuck::cast_slice(&icosahedorn_vertecies),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        self.index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(&lines),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+    }
+
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.check_earth_subid_level();
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
