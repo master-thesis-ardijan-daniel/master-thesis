@@ -34,6 +34,21 @@ extern "C" {
     fn get_subdivision_level() -> js_sys::Number;
 }
 
+pub fn safe_get_subdivision_level() -> Option<usize> {
+    let n: f64 = get_subdivision_level().value_of();
+    // #[cfg(feature = "debug")]
+    // log::warn!("subdiv_level is {:?}", n);
+    if n.is_nan() {
+        return None;
+    }
+
+    if n < 0. {
+        return Some(0);
+    }
+
+    Some(n as usize)
+}
+
 struct PerformanceMetrics {
     total_frame_time: f64,
     number_of_frames: f64,

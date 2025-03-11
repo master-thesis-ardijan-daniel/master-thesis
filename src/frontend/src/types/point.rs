@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
@@ -30,6 +31,26 @@ impl Point {
 
     pub fn as_array(&self) -> &[f32; 3] {
         &self.coordinates
+    }
+
+    pub fn vec_length(&self) -> f32 {
+        (self.x().powi(2) + self.y().powi(2) + self.z().powi(2)).sqrt()
+    }
+
+    // cartesian to spherical coordinates
+    pub fn to_lat_lon_range(&self) -> (f32, f32, f32) {
+        let lenxy = (self.x() * self.x() + self.y() * self.y()).sqrt();
+        let range = self.vec_length();
+        if lenxy < 1.0e-10 {
+            if self.z() > 0. {
+                return (PI / 2., 0.0, range);
+            }
+            (-(PI / 2.), 0.0, range)
+        } else {
+            let lat = self.z().atan2(lenxy);
+            let lon = self.y().atan2(self.x());
+            (lat, lon, range)
+        }
     }
 }
 

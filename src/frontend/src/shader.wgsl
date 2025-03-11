@@ -24,15 +24,15 @@ fn vs_main(
     var out: VertexOutput;
     out.color = model.color;
 
-    let world_position = vec4<f32>(model.position*3., 1.0);
+    let world_position = vec4<f32>(model.position, 1.0);
     out.pos = vec3<f32>(world_position.x,world_position.y,world_position.z);
     out.clip_position = camera.view_proj * world_position;
-    
+
     return out;
 }
 
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.pos*10., 1.0);
+    return vec4<f32>(in.pos, 1.0);
 }
