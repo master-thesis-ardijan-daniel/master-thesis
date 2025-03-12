@@ -92,7 +92,7 @@ impl EarthState {
 
         self.index_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&icosphere_lines.as_flattened()),
+            contents: bytemuck::cast_slice(icosphere_lines.as_flattened()),
             usage: BufferUsages::INDEX,
         });
 
