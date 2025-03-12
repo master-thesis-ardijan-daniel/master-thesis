@@ -1,7 +1,9 @@
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Queue, RenderPass,
-    VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
+    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Origin3d, Queue,
+    RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo,
+    TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
 };
 
 use super::{Icosphere, Point};
@@ -17,6 +19,11 @@ pub struct EarthState {
 
     pub num_vertices: u32,
     pub num_indices: u32,
+    texture_buffer: wgpu::Texture,
+    texture_size: wgpu::Extent3d,
+    current_texture: image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    pub texture_bind_group: wgpu::BindGroup,
+    pub texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl EarthState {
@@ -39,9 +46,82 @@ impl EarthState {
             mapped_at_creation: false,
         });
 
+        let texture_bytes = include_bytes!("../../earthmap1k.jpg");
+        let texture_img = image::load_from_memory(texture_bytes).unwrap();
+        let texture_rgba = texture_img.to_rgb8();
+        let texture_size = wgpu::Extent3d {
+            width: texture_img.width(),
+            height: texture_img.height(),
+            depth_or_array_layers: 1,
+        };
+        let diffuse_texture = device.create_texture(&TextureDescriptor {
+            label: Some("earth_texture_buffer"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let diffuse_texture_view = diffuse_texture.create_view(&TextureViewDescriptor::default());
+        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("earth_texture_bind_group"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("earth_texture_diffuse_bind_group"),
+            layout: &texture_bind_group_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                },
+            ],
+        });
+
         Self {
             vertex_buffer,
             index_buffer,
+            texture_buffer: diffuse_texture,
+            texture_size,
+            current_texture: texture_rgba,
+            texture_bind_group: diffuse_bind_group,
+            texture_bind_group_layout,
 
             icosphere,
             previous_subdivision_level: 1,
@@ -67,7 +147,22 @@ impl EarthState {
         self.current_subdivision_level = level;
     }
 
-    pub fn update(&mut self, _queue: &Queue, device: &Device) {
+    pub fn update(&mut self, queue: &Queue, device: &Device) {
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture_buffer,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &self.current_texture,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(self.texture_size.width * 4),
+                rows_per_image: Some(self.texture_size.height),
+            },
+            self.texture_size,
+        );
         if self.current_subdivision_level == self.previous_subdivision_level {
             return;
         }
@@ -102,7 +197,7 @@ impl EarthState {
     pub fn render(&self, render_pass: &mut RenderPass<'_>) -> u32 {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-
+        render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
         self.num_indices
     }
 }
