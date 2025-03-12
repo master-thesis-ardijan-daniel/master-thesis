@@ -54,7 +54,7 @@ impl<'a> State<'a> {
             .await
             .unwrap();
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/shader.wgsl"));
 
         let surface_caps = surface.get_capabilities(&adapter);
 
