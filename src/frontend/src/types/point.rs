@@ -2,7 +2,7 @@ use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
-use glam::Vec3;
+use glam::{Vec3, Vec3Swizzles};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Point(Vec3);
@@ -22,14 +22,19 @@ impl Point {
         self.0.z
     }
 
+    pub fn length(&self) -> f32 {
+        self.0.length()
+    }
+
     pub fn to_array(&self) -> [f32; 3] {
         self.0.to_array()
     }
 
     // cartesian to spherical coordinates
     pub fn to_lat_lon_range(&self) -> (f32, f32, f32) {
-        let lenxy = (self.x() * self.x() + self.y() * self.y()).sqrt();
+        let lenxy = self.0.xy().length();
         let range = self.0.length();
+
         if lenxy < 1.0e-10 {
             if self.z() > 0. {
                 return (PI / 2., 0.0, range);

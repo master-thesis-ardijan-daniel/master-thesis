@@ -115,8 +115,7 @@ impl EarthState {
 }
 
 fn vert_transform(mut v: Point) -> Point {
-    let vec_length = (v.x().powi(2) + v.y().powi(2) + v.z().powi(2)).sqrt();
-    v /= vec_length;
+    v /= v.length();
     // const EARTH_RADIUS: 6378.137;
     const EARTH_RADIUS: f32 = 1.;
     // const FLATTENING: f32 = 1. / 298.257;
