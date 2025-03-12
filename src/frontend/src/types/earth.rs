@@ -85,13 +85,13 @@ impl EarthState {
             .collect::<Vec<_>>();
 
         self.vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
+            label: Some("earth_vertex_buffer"),
             contents: bytemuck::cast_slice(&icosphere_verts),
             usage: BufferUsages::VERTEX,
         });
 
         self.index_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
+            label: Some("earth_index_buffer"),
             contents: bytemuck::cast_slice(icosphere_lines.as_flattened()),
             usage: BufferUsages::INDEX,
         });
