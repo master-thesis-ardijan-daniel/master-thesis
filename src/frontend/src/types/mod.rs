@@ -3,3 +3,4 @@ pub use point::*;
 pub mod icosphere;
 pub use icosphere::*;
 pub mod earth;
+pub use earth::*;
