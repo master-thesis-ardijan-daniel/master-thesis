@@ -84,13 +84,6 @@ impl EarthState {
             .map(Point::to_array)
             .collect::<Vec<_>>();
 
-        let mut icosphere_lines = icosphere_lines
-            .as_flattened()
-            .iter()
-            .map(|x| u16::try_from(*x).unwrap())
-            .collect::<Vec<u16>>();
-        icosphere_lines.push(0);
-
         self.vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&icosphere_verts),
@@ -99,7 +92,7 @@ impl EarthState {
 
         self.index_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&icosphere_lines),
+            contents: bytemuck::cast_slice(&icosphere_lines.as_flattened()),
             usage: BufferUsages::INDEX,
         });
 
@@ -108,7 +101,7 @@ impl EarthState {
 
     pub fn render(&self, render_pass: &mut RenderPass<'_>) -> u32 {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
         self.num_indices
     }
