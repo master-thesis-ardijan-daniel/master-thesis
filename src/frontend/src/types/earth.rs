@@ -17,12 +17,12 @@ pub struct EarthState {
     previous_subdivision_level: usize,
     current_subdivision_level: usize,
 
-    pub num_vertices: u32,
-    pub num_indices: u32,
+    num_vertices: u32,
+    num_indices: u32,
     texture_buffer: wgpu::Texture,
     texture_size: wgpu::Extent3d,
     current_texture: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
-    pub texture_bind_group: wgpu::BindGroup,
+    texture_bind_group: wgpu::BindGroup,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 

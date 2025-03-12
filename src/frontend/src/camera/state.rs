@@ -12,9 +12,8 @@ pub struct CameraState {
     pub controller: CameraController,
 
     pub bind_group_layout: BindGroupLayout,
-    pub bind_group: BindGroup,
-
-    pub buffer: Buffer,
+    bind_group: BindGroup,
+    buffer: Buffer,
 }
 
 impl CameraState {
