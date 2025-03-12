@@ -21,7 +21,7 @@ pub struct EarthState {
     pub num_indices: u32,
     texture_buffer: wgpu::Texture,
     texture_size: wgpu::Extent3d,
-    current_texture: image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    current_texture: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
     pub texture_bind_group: wgpu::BindGroup,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
 }
@@ -46,9 +46,9 @@ impl EarthState {
             mapped_at_creation: false,
         });
 
-        let texture_bytes = include_bytes!("../../earthmap1k.jpg");
+        let texture_bytes = include_bytes!("../../earthmap2k.jpg");
         let texture_img = image::load_from_memory(texture_bytes).unwrap();
-        let texture_rgba = texture_img.to_rgb8();
+        let texture_rgba = texture_img.to_rgba8();
         let texture_size = wgpu::Extent3d {
             width: texture_img.width(),
             height: texture_img.height(),
@@ -163,16 +163,19 @@ impl EarthState {
             },
             self.texture_size,
         );
+
         if self.current_subdivision_level == self.previous_subdivision_level {
             return;
         }
 
-        let (icosphere_verts, icosphere_lines) = self
+        let (icosphere_verts, icosphere_faces) = self
             .icosphere
-            .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level);
+            .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level);
+
+        let icosphere_faces = icosphere_faces.as_flattened();
 
         self.num_vertices = icosphere_verts.len() as u32;
-        self.num_indices = icosphere_lines.len() as u32 * 2;
+        self.num_indices = icosphere_faces.len() as u32;
 
         let icosphere_verts = icosphere_verts
             .iter()
@@ -187,7 +190,7 @@ impl EarthState {
 
         self.index_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("earth_index_buffer"),
-            contents: bytemuck::cast_slice(icosphere_lines.as_flattened()),
+            contents: bytemuck::cast_slice(icosphere_faces),
             usage: BufferUsages::INDEX,
         });
 
@@ -195,9 +198,10 @@ impl EarthState {
     }
 
     pub fn render(&self, render_pass: &mut RenderPass<'_>) -> u32 {
+        render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
+
         self.num_indices
     }
 }
@@ -207,7 +211,7 @@ fn vert_transform(mut v: Point) -> Point {
     // const EARTH_RADIUS: 6378.137;
     const EARTH_RADIUS: f32 = 1.;
     // const FLATTENING: f32 = 1. / 298.257;
-    const FLATTENING: f32 = 0.3;
+    const FLATTENING: f32 = 0.;
     // // get polar from cartesian
     let (lat, _lon, _rng) = v.to_lat_lon_range();
     // // get ellipsoid radius from polar

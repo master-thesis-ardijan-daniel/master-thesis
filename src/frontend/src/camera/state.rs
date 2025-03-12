@@ -2,7 +2,7 @@ use web_time::Duration;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindingType, Buffer, BufferBindingType, BufferUsages, Device, Queue, ShaderStages,
+    BindingType, Buffer, BufferBindingType, BufferUsages, Device, Queue, RenderPass, ShaderStages,
 };
 use winit::dpi::PhysicalSize;
 
@@ -69,5 +69,11 @@ impl CameraState {
 
         let uniform = self.controller.update_view_projection();
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[uniform]));
+    }
+
+    pub fn render(&mut self, render_pass: &mut RenderPass<'_>) -> u32 {
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
+
+        0
     }
 }

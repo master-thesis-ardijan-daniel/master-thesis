@@ -111,7 +111,7 @@ impl<'a> State<'a> {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
@@ -197,10 +197,10 @@ impl<'a> State<'a> {
                 timestamp_writes: None,
             });
             render_pass.set_pipeline(&self.pipeline);
-            render_pass.set_bind_group(0, &self.camera_state.bind_group, &[]);
 
             let mut indices = 0;
 
+            indices += self.camera_state.render(&mut render_pass);
             indices += self.earth_state.render(&mut render_pass);
 
             render_pass.draw_indexed(0..indices, 0, 0..1);
