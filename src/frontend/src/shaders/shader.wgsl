@@ -11,8 +11,7 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
-    @location(1) pos: vec3<f32>,
+    @location(0) pos: vec3<f32>,
 };
 
 @vertex
@@ -28,8 +27,15 @@ fn vs_main(
     return out;
 }
 
+@group(1) @binding(0) var t_diffuse: texture_2d<f32>; 
+@group(1) @binding(1) var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.pos, 1.0);
+    const PI: f32 = 3.14159265358979323846264338327950288;
+
+    let u = atan2(in.pos.x, -in.pos.y) / (2. * PI) + 0.5;
+    let v = in.pos.z * 0.5 + 0.5;
+
+    return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v));
 }
