@@ -99,6 +99,91 @@ impl Icosphere {
         new_icosphere
     }
 
+    pub fn new2(
+        radius: f32,
+        center: Point,
+        max_subdiv_level: usize,
+        min_subdiv_level: usize,
+        vertex_transformation_function: fn(Vertex) -> Vertex,
+    ) -> Self {
+        let t: f32 = (1.0 + 5.0_f32.sqrt()) / 2.0;
+
+        let mut vertecies = vec![];
+        let mut faces = vec![];
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            -1., t, 0.,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            1., t, 0.,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            -1., -t, 0.,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            1., -t, 0.,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            0., -1., t,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            0., 1., t,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            0., -1., -t,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            0., 1., -t,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            t, 0., -1.,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            t, 0., 1.,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            -t, 0., -1.,
+        ])));
+        vertecies.push(vertex_transformation_function(Into::<Point>::into([
+            -t, 0., 1.,
+        ])));
+
+        faces.push([0, 11, 5]);
+        faces.push([0, 5, 1]);
+        faces.push([0, 1, 7]);
+        faces.push([0, 7, 10]);
+        faces.push([0, 10, 11]);
+        faces.push([1, 5, 9]);
+        faces.push([5, 11, 4]);
+        faces.push([11, 10, 2]);
+        faces.push([10, 7, 6]);
+        faces.push([7, 1, 8]);
+        faces.push([3, 9, 4]);
+        faces.push([3, 4, 2]);
+        faces.push([3, 2, 6]);
+        faces.push([3, 6, 8]);
+        faces.push([3, 8, 9]);
+        faces.push([4, 9, 5]);
+        faces.push([2, 4, 11]);
+        faces.push([6, 2, 10]);
+        faces.push([8, 6, 7]);
+        faces.push([9, 8, 1]);
+
+        let mut new_icosphere = Self {
+            center,
+            radius,
+            vertecies: vertecies.to_vec(),
+            vertex_subdiv_index: vec![vertecies.len()],
+            faces: vec![faces.to_vec()],
+            max_subdiv_level,
+            min_subdiv_level,
+            transformation_function: vertex_transformation_function,
+        };
+
+        new_icosphere.subdivide_if_nessairy_and_clamp_level(min_subdiv_level);
+
+        new_icosphere
+    }
+
     fn subdivide_if_nessairy_and_clamp_level(&mut self, mut level: usize) -> usize {
         if level > self.max_subdiv_level {
             level = self.max_subdiv_level;
