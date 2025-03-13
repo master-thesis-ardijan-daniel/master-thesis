@@ -46,6 +46,7 @@ impl EarthState {
             mapped_at_creation: false,
         });
 
+        // let texture_bytes = include_bytes!("../../checkerboard_test.png");
         let texture_bytes = include_bytes!("../../earthmap2k.jpg");
         let texture_img = image::load_from_memory(texture_bytes).unwrap();
         let texture_rgba = texture_img.to_rgba8();
