@@ -14,6 +14,12 @@ pub struct PerformanceMetrics {
     timer_since_last_reset: Instant,
 }
 
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PerformanceMetrics {
     pub fn new() -> Self {
         Self {
