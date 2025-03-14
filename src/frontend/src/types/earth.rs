@@ -8,6 +8,7 @@ use wgpu::{
 
 use super::{Icosphere, Point};
 
+#[derive(Debug)]
 pub struct EarthState {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
@@ -16,6 +17,8 @@ pub struct EarthState {
 
     previous_subdivision_level: usize,
     current_subdivision_level: usize,
+    previous_output_as_lines: bool,
+    current_output_as_lines: bool,
 
     num_vertices: u32,
     num_indices: u32,
@@ -120,6 +123,8 @@ impl EarthState {
             index_buffer,
             texture_buffer: diffuse_texture,
             texture_size,
+            previous_output_as_lines: false,
+            current_output_as_lines: false,
             current_texture: texture_rgba,
             texture_bind_group: diffuse_bind_group,
             texture_bind_group_layout,
@@ -147,6 +152,9 @@ impl EarthState {
     pub fn set_subdivision_level(&mut self, level: usize) {
         self.current_subdivision_level = level;
     }
+    pub fn set_output_to_lines(&mut self, output_as_lines: bool) {
+        self.current_output_as_lines = output_as_lines;
+    }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
         queue.write_texture(
@@ -165,15 +173,27 @@ impl EarthState {
             self.texture_size,
         );
 
-        if self.current_subdivision_level == self.previous_subdivision_level {
+        if self.current_subdivision_level == self.previous_subdivision_level
+            && self.previous_output_as_lines == self.current_output_as_lines
+        {
             return;
         }
 
-        let (icosphere_verts, icosphere_faces) = self
-            .icosphere
-            .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level);
-
-        let icosphere_faces = icosphere_faces.as_flattened();
+        let lines;
+        let faces;
+        let icosphere_faces;
+        let icosphere_verts;
+        if !self.current_output_as_lines {
+            (icosphere_verts, faces) = self
+                .icosphere
+                .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level);
+            icosphere_faces = faces.as_flattened();
+        } else {
+            (icosphere_verts, lines) = self
+                .icosphere
+                .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level);
+            icosphere_faces = lines.as_flattened();
+        };
 
         self.num_vertices = icosphere_verts.len() as u32;
         self.num_indices = icosphere_faces.len() as u32;
@@ -196,6 +216,7 @@ impl EarthState {
         });
 
         self.previous_subdivision_level = self.current_subdivision_level;
+        self.previous_output_as_lines = self.current_output_as_lines;
     }
 
     pub fn render(&self, render_pass: &mut RenderPass<'_>) -> u32 {

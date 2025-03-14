@@ -4,67 +4,96 @@
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
     <meta charset="utf-8">
     <title>Lets test WASM!</title>
+    <style>
+      #debugInfo {
+        position: absolute;
+        top: 0vh;
+        left: 0px;
+        background: rgba(200, 200, 200, 0.7);
+        color: white;
+        padding: 10px;
+        border-radius: 5px;
+        font-family: Arial, sans-serif;
+        display: none;
+      }
+
+      #map_canvas> canvas {
+        width:1000px;
+        height:1000px;
+      }
+    </style>
   </head>
   <body>
-    <div>
+    <div id="debugInfo">
       <h2>Debug info:</h2>
       <p>FPS: <span id="fpsDisplay">Calculating...</span></p>
       <p>Startup Time: <span id="startupTime">Waiting...</span></p>
-      <p>Subdivision Levels: <input type="range" id="subdivisionSlider" min="0" max="20" value="0" step="1"> <span id="subdivisionValue">0</span></p>
-
+      <p>Subdivision Levels: 
+        <input type="range" id="subdivisionSlider" min="0" max="20" value="0" step="1">
+        <span id="subdivisionValue">0</span>
+      </p>
       <canvas id="perfCanvas" width="600" height="300"></canvas>
     </div>
 
-    <div id="map_canvas">
-    </div>
-    
+    <div id="map_canvas"></div>
+
     <script>
+      const debugInfo = document.getElementById('debugInfo');
+      let debugVisible = false;
+
+      document.addEventListener('keydown', (event) => {
+          if (event.key === 'd' || event.key === 'D') {
+              debugVisible = !debugVisible;
+              debugInfo.style.display = debugVisible ? 'block' : 'none';
+          }
+      });
+
       const canvas = document.getElementById('perfCanvas');
       const ctx = canvas.getContext('2d');
       const fpsDisplay = document.getElementById('fpsDisplay');
       const startupTimeDisplay = document.getElementById('startupTime');
       const subdivisionSlider = document.getElementById('subdivisionSlider');
       const subdivisionValue = document.getElementById('subdivisionValue');
+      
       subdivisionSlider.addEventListener('input', () => {
           subdivisionValue.textContent = subdivisionSlider.value;
       });
-      
-      let dataPoints = [];
-      const maxDataPoints = 60; // 60 seconds of data
 
-      function get_subdivision_level(){
+      let dataPoints = [];
+      const maxDataPoints = 60;
+
+      function get_subdivision_level() {
         return subdivisionSlider.value;
       }
 
       function handle_new_perf_data(eventMap) {
-          <!-- console.log(eventMap); -->
-          const highest_frame_time_last_second = eventMap.get("highest_frame_time")*1000;
-          const lowest_frame_time_last_second = eventMap.get("lowest_frame_time")*1000;
-          const avg_frame_time = eventMap.get("avg_frame_time")*1000;
-          startupTimeDisplay.textContent=eventMap.get("startup_time")*1000 + " ms";
+          const highest_frame_time_last_second = eventMap.get("highest_frame_time") * 1000;
+          const lowest_frame_time_last_second = eventMap.get("lowest_frame_time") * 1000;
+          const avg_frame_time = eventMap.get("avg_frame_time") * 1000;
+          startupTimeDisplay.textContent = eventMap.get("startup_time") * 1000 + " ms";
 
-          if (dataPoints.length >= 100) {
-              dataPoints.shift(); // Remove oldest entry
+          if (dataPoints.length >= maxDataPoints) {
+              dataPoints.shift();
           }
           dataPoints.push({ highest_frame_time_last_second, lowest_frame_time_last_second, avg_frame_time });
-          
-          const fps = avg_frame_time > 0 ? (1000 /avg_frame_time).toFixed(2) : 'N/A';
+
+          const fps = avg_frame_time > 0 ? (1000 / avg_frame_time).toFixed(2) : 'N/A';
           fpsDisplay.textContent = fps + ' FPS';
-          
+
           drawGraph();
       }
 
       function drawGraph() {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
-          
+
           const padding = 40;
           const graphHeight = canvas.height - 2 * padding;
           const graphWidth = canvas.width - 2 * padding;
           const maxFrameTime = Math.max(...dataPoints.map(d => d.highest_frame_time_last_second), 16.67);
 
-          // Draw Y-axis scale
           ctx.fillStyle = 'black';
           ctx.font = '12px Arial';
+
           for (let i = 0; i <= 5; i++) {
               let value = (maxFrameTime / 5) * i;
               let y = canvas.height - padding - (value / maxFrameTime) * graphHeight;
@@ -76,7 +105,6 @@
               ctx.stroke();
           }
 
-          // Draw legend
           ctx.fillStyle = 'red';
           ctx.fillText('Highest Frame Time', canvas.width - 140, 20);
           ctx.fillStyle = 'blue';
@@ -84,7 +112,6 @@
           ctx.fillStyle = 'green';
           ctx.fillText('Avg Frame Time', canvas.width - 140, 50);
 
-          // Draw highest frame time (red)
           ctx.beginPath();
           ctx.strokeStyle = 'red';
           dataPoints.forEach((d, i) => {
@@ -94,7 +121,6 @@
           });
           ctx.stroke();
 
-          // Draw lowest frame time (blue)
           ctx.beginPath();
           ctx.strokeStyle = 'blue';
           dataPoints.forEach((d, i) => {
@@ -104,7 +130,6 @@
           });
           ctx.stroke();
 
-          // Draw avg frame time (green)
           ctx.beginPath();
           ctx.strokeStyle = 'green';
           dataPoints.forEach((d, i) => {
@@ -114,9 +139,8 @@
           });
           ctx.stroke();
       }
-
     </script>
-    
+
     <link data-trunk rel="rust" href="Cargo.toml" data-wasm-opt="4"/>
   </body>
 </html>

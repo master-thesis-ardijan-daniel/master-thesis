@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{camera::CameraState, types::earth::EarthState};
 use web_time::Duration;
 use wgpu::FragmentState;
@@ -5,14 +7,17 @@ use winit::window::Window;
 
 mod input;
 
-pub struct State<'a> {
-    pub surface: wgpu::Surface<'a>,
+#[derive(Debug)]
+pub struct State {
+    pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
-    pub window: &'a Window,
-    pub pipeline: wgpu::RenderPipeline,
+    pub window: Arc<Window>,
+    pub texture_pipeline: wgpu::RenderPipeline,
+    pub wireframe_pipeline: wgpu::RenderPipeline,
+    render_wireframe: bool,
 
     pub camera_state: CameraState,
     pub earth_state: EarthState,
@@ -20,8 +25,8 @@ pub struct State<'a> {
     pub delta: Duration,
 }
 
-impl<'a> State<'a> {
-    pub async fn new(window: &'a Window) -> State<'a> {
+impl State {
+    pub async fn new(window: Arc<Window>) -> State {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -30,7 +35,7 @@ impl<'a> State<'a> {
         });
 
         let surface = instance
-            .create_surface(window)
+            .create_surface(window.clone())
             .expect("Unable to create surface");
 
         let adapter = instance
@@ -88,7 +93,7 @@ impl<'a> State<'a> {
             push_constant_ranges: &[],
         });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let texture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -129,6 +134,46 @@ impl<'a> State<'a> {
             cache: None,
         });
 
+        let wireframe_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[EarthState::descriptor()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(FragmentState {
+                module: &shader,
+                entry_point: Some("fs_wireframe"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
         Self {
             surface,
             device,
@@ -136,15 +181,17 @@ impl<'a> State<'a> {
             config,
             size,
             window,
-            pipeline,
+            texture_pipeline,
+            wireframe_pipeline,
             earth_state,
             camera_state,
             delta: Duration::ZERO,
+            render_wireframe: false,
         }
     }
 
     pub fn window(&self) -> &Window {
-        self.window
+        self.window.as_ref()
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -162,6 +209,11 @@ impl<'a> State<'a> {
     pub fn update(&mut self) {
         self.earth_state.update(&self.queue, &self.device);
         self.camera_state.update(&self.queue, self.delta);
+    }
+
+    pub fn set_render_wireframe(&mut self, render_as_wireframe: bool) {
+        self.render_wireframe = render_as_wireframe;
+        self.earth_state.set_output_to_lines(render_as_wireframe);
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -184,9 +236,9 @@ impl<'a> State<'a> {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.1,
+                            r: 0.01,
+                            g: 0.01,
+                            b: 0.01,
                             a: 1.,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -196,7 +248,12 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            render_pass.set_pipeline(&self.pipeline);
+
+            if self.render_wireframe {
+                render_pass.set_pipeline(&self.wireframe_pipeline);
+            } else {
+                render_pass.set_pipeline(&self.texture_pipeline);
+            }
 
             let mut indices = 0;
 
