@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use types::PerformanceMetrics;
 use wasm_bindgen::prelude::*;
@@ -24,9 +24,7 @@ pub mod camera;
 
 #[cfg(feature = "debug")]
 fn init_debug() {
-    // use env_logger;
     use log::Level;
-    //env_logger::init();
 
     console_error_panic_hook::set_once();
     console_log::init_with_level(Level::Warn).expect("Unable to init console_log");
@@ -41,8 +39,6 @@ extern "C" {
 
 pub fn safe_get_subdivision_level() -> Option<usize> {
     let n: f64 = get_subdivision_level().value_of();
-    // #[cfg(feature = "debug")]
-    // log::warn!("subdiv_level is {:?}", n);
     if n.is_nan() {
         return None;
     }
@@ -59,6 +55,7 @@ struct App {
     last_render: web_time::Instant,
     perf_metrics: PerformanceMetrics,
     proxy: Arc<EventLoopProxy<CustomEvent>>,
+    time_since_last_event: Instant,
 }
 
 impl App {
@@ -67,6 +64,7 @@ impl App {
             perf_metrics: PerformanceMetrics::new(),
             state: None,
             last_render: web_time::Instant::now(),
+            time_since_last_event: web_time::Instant::now(),
             proxy: Arc::new(proxy),
         }
     }
@@ -113,6 +111,8 @@ impl ApplicationHandler<CustomEvent> for App {
     ) {
         if let Some(state) = self.state.as_mut() {
             if state.input(&event) {
+                self.time_since_last_event = Instant::now();
+                state.window().request_redraw();
                 return;
             }
         }
@@ -120,10 +120,10 @@ impl ApplicationHandler<CustomEvent> for App {
         match (event, self.state.is_some()) {
             (WindowEvent::RedrawRequested, true) => {
                 let state = self.state.as_mut().expect("State should exist");
-                state.window().request_redraw();
 
                 let now = Instant::now();
-                state.delta = now - self.last_render;
+                // Need to cap delta, since time between events can now get very large
+                state.delta = (now - self.last_render).min(Duration::from_millis(20));
                 self.last_render = now;
 
                 if let Some(v) = safe_get_subdivision_level() {
@@ -194,6 +194,7 @@ enum CustomEvent {
 pub async fn run() {
     let event_loop = EventLoop::<CustomEvent>::with_user_event().build().unwrap();
     let proxy_event_loop = event_loop.create_proxy();
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
     let mut _app = App::new(proxy_event_loop);
 
