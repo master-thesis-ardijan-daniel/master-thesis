@@ -40,3 +40,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v));
 }
+
+@fragment
+fn fs_wireframe(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(in.pos, 1.0);
+}

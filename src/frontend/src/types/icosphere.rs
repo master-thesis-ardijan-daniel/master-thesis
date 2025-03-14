@@ -32,17 +32,27 @@ impl Icosphere {
 
         let mut vertecies: [Vertex; 12] = [[0., 0., 0.].into(); 12];
         let mut faces: [[u32; 3]; 20] = [[0, 0, 0]; 20];
-
+        // Top vertex
         vertecies[0] = vertex_transformation_function(Into::<Point>::into([0., 0., 1.])); // Top vertex
 
         // Calculate the next 5 vertecies position
-        for i in 0..5 {
-            let angle = 2. * PI * i as f32 / 5.;
+        let base_angle = 2. * PI * 1. / 5.;
+        for i in 1..=10 {
+            let mut angle = 2. * PI * i as f32 / 5.;
+            let mut height = pentagram_height;
+            if i > 5 {
+                angle -= base_angle / 2.;
+                height = -pentagram_height;
+            }
+
             let x = pentagram_radius * angle.cos();
             let y = pentagram_radius * angle.sin();
-            let z = pentagram_height;
-            vertecies[i + 1] = vertex_transformation_function(Into::<Point>::into([x, y, z]));
+            let z = height;
+            vertecies[i] = vertex_transformation_function(Into::<Point>::into([x, y, z]));
         }
+
+        // Bottom vertex
+        vertecies[11] = vertex_transformation_function(Into::<Point>::into([0., 0., -1.])); // Top vertex
 
         faces[0] = [0, 2, 1];
         faces[1] = [0, 3, 2];
@@ -50,16 +60,7 @@ impl Icosphere {
         faces[3] = [0, 5, 4];
         faces[4] = [0, 1, 5];
 
-        //The bottom set of vertecies are a mirror along xy axis of the top.
-        for v in 1..6 {
-            let x = vertecies[v].x();
-            let y = vertecies[v].y();
-            let z = -vertecies[v].z();
-            // let z = -pentagram_height;
-            vertecies[v + 5] = Into::<Point>::into([x, y, z]);
-        }
-
-        //Fill in the central faces
+        // Fill in the central faces
         faces[5] = [1, 2, 7];
         faces[6] = [1, 7, 6];
 
@@ -74,9 +75,6 @@ impl Icosphere {
 
         faces[13] = [5, 1, 6];
         faces[14] = [5, 6, 10];
-
-        //Add bottom vertex and fill in the rest of the faces.
-        vertecies[11] = vertecies[0] * -1.;
 
         faces[15] = [5 + 1, 5 + 2, 11];
         faces[16] = [5 + 2, 5 + 3, 11];
