@@ -211,7 +211,7 @@ impl EarthState {
 
         self.index_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("earth_index_buffer"),
-            contents: bytemuck::cast_slice(&icosphere_faces),
+            contents: bytemuck::cast_slice(icosphere_faces),
             usage: BufferUsages::INDEX,
         });
 
