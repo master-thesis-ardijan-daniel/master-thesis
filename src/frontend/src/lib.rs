@@ -10,7 +10,6 @@ use winit::{
     dpi::PhysicalSize,
     event::*,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{KeyCode, PhysicalKey},
     window::WindowAttributes,
 };
 
@@ -105,7 +104,7 @@ impl ApplicationHandler<CustomEvent> for App {
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        _event_loop: &ActiveEventLoop,
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
@@ -137,13 +136,14 @@ impl ApplicationHandler<CustomEvent> for App {
                 match state.render() {
                     Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        state.window().request_redraw();
                         state.resize(state.size)
                     }
 
                     #[cfg(feature = "debug")]
                     Err(wgpu::SurfaceError::OutOfMemory) => {
                         log::error!("Out of Memory!!!");
-                        event_loop.exit();
+                        _event_loop.exit();
                     }
 
                     #[cfg(feature = "debug")]
@@ -156,6 +156,7 @@ impl ApplicationHandler<CustomEvent> for App {
             }
 
             (WindowEvent::Resized(new_size), true) => {
+                self.state.as_mut().unwrap().window().request_redraw();
                 self.state.as_mut().unwrap().resize(new_size);
             }
             _ => {}
