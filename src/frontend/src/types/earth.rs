@@ -179,20 +179,20 @@ impl EarthState {
             return;
         }
 
-        let f;
+        let lines;
+        let faces;
         let icosphere_faces;
         let icosphere_verts;
         if !self.current_output_as_lines {
-            let (v, f) = self
+            (icosphere_verts, faces) = self
                 .icosphere
                 .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level);
-            icosphere_faces = f.as_flattened();
-            icosphere_verts = v;
+            icosphere_faces = faces.as_flattened();
         } else {
-            (icosphere_verts, f) = self
+            (icosphere_verts, lines) = self
                 .icosphere
                 .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level);
-            icosphere_faces = f.as_flattened();
+            icosphere_faces = lines.as_flattened();
         };
 
         self.num_vertices = icosphere_verts.len() as u32;

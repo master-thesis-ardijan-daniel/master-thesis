@@ -13,9 +13,6 @@ use winit::{
     window::WindowAttributes,
 };
 
-#[cfg(target_arch = "wasm32")]
-use winit::platform::web::WindowExtWebSys;
-
 pub mod state;
 pub mod types;
 pub use state::*;
@@ -188,8 +185,8 @@ pub async fn run() {
 
     #[cfg(target_arch = "wasm32")]
     {
-        init_debug();
         use winit::platform::web::EventLoopExtWebSys;
+        init_debug();
         event_loop.spawn_app(_app);
     }
 }
