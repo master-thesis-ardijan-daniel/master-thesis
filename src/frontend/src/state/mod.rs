@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{camera::CameraState, types::earth::EarthState};
 use web_time::Duration;
 use wgpu::FragmentState;
@@ -5,13 +7,14 @@ use winit::window::Window;
 
 mod input;
 
-pub struct State<'a> {
-    pub surface: wgpu::Surface<'a>,
+#[derive(Debug)]
+pub struct State {
+    pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
-    pub window: &'a Window,
+    pub window: Arc<Window>,
     pub pipeline: wgpu::RenderPipeline,
 
     pub camera_state: CameraState,
@@ -20,8 +23,8 @@ pub struct State<'a> {
     pub delta: Duration,
 }
 
-impl<'a> State<'a> {
-    pub async fn new(window: &'a Window) -> State<'a> {
+impl State {
+    pub async fn new(window: Arc<Window>) -> State {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -30,7 +33,7 @@ impl<'a> State<'a> {
         });
 
         let surface = instance
-            .create_surface(window)
+            .create_surface(window.clone())
             .expect("Unable to create surface");
 
         let adapter = instance
@@ -144,7 +147,7 @@ impl<'a> State<'a> {
     }
 
     pub fn window(&self) -> &Window {
-        self.window
+        self.window.as_ref()
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {

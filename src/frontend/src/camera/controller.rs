@@ -6,6 +6,7 @@ use web_time::Duration;
 use winit::dpi::PhysicalPosition;
 use winit::event::MouseScrollDelta;
 
+#[derive(Debug)]
 pub struct CameraController {
     scroll: f32,
     speed: f32,

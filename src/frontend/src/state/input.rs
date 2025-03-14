@@ -6,7 +6,7 @@ use winit::{
 
 use super::State;
 
-impl State<'_> {
+impl State {
     pub fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::MouseInput {

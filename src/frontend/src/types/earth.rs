@@ -8,6 +8,7 @@ use wgpu::{
 
 use super::{Icosphere, Point};
 
+#[derive(Debug)]
 pub struct EarthState {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
