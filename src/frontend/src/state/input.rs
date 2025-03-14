@@ -1,6 +1,7 @@
 use winit::{
     dpi::PhysicalPosition,
-    event::{MouseButton, WindowEvent},
+    event::{KeyEvent, MouseButton, WindowEvent},
+    keyboard::{KeyCode, PhysicalKey},
     window::CursorIcon,
 };
 
@@ -44,6 +45,26 @@ impl State {
 
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_state.controller.process_mouse_wheel(delta);
+                true
+            }
+
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state,
+                        physical_key: PhysicalKey::Code(KeyCode::KeyW),
+                        ..
+                    },
+                ..
+            } => {
+                if state.is_pressed() {
+                    if self.render_wireframe == true {
+                        self.set_render_wireframe(false);
+                        return true;
+                    }
+                    self.set_render_wireframe(true);
+                    return true;
+                }
                 true
             }
 
