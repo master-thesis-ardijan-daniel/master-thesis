@@ -8,6 +8,7 @@ use winit::dpi::PhysicalSize;
 
 use super::{Camera, CameraController, Projection};
 
+#[derive(Debug)]
 pub struct CameraState {
     pub controller: CameraController,
 

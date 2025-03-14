@@ -6,6 +6,7 @@ pub const PHI: f32 = 1.618_034_f32;
 
 type Vertex = Point;
 
+#[derive(Debug)]
 pub struct Icosphere {
     pub center: Point,
     pub radius: f32,

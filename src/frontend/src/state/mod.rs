@@ -7,6 +7,7 @@ use winit::window::Window;
 
 mod input;
 
+#[derive(Debug)]
 pub struct State {
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,

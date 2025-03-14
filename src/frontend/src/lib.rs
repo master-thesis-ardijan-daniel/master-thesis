@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use types::PerformanceMetrics;
 use wasm_bindgen::prelude::*;
@@ -9,7 +9,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
     event::*,
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{KeyCode, PhysicalKey},
     window::WindowAttributes,
 };
@@ -54,116 +54,34 @@ pub fn safe_get_subdivision_level() -> Option<usize> {
     Some(n as usize)
 }
 
-// #[wasm_bindgen(start)]
-// pub async fn run() {
-//     let mut perf_metrics = PerformanceMetrics::new();
-//     #[cfg(feature = "debug")]
-//     init_debug();
-
-//     let event_loop = EventLoop::new().unwrap();
-//     let window = WindowBuilder::new()
-//         .build(&event_loop)
-//         .expect("Could not create window");
-
-//     #[cfg(target_arch = "wasm32")]
-//     {
-//         let map_element = web_sys::window()
-//             .and_then(|w| w.document())
-//             .and_then(|doc| doc.get_element_by_id("map_canvas"))
-//             .expect("retrieved map element");
-
-//         map_element
-//             .append_child(&web_sys::Element::from(
-//                 window.canvas().expect("created a canvas"),
-//             ))
-//             .expect("added canvas to map element");
-//     }
-
-//     let _ = window.request_inner_size(PhysicalSize::new(1000, 1000));
-
-//     let mut state = State::new(&window).await;
-//     let mut surface_configured = false;
-
-//     let mut last_render = Instant::now();
-
-//     let _ = event_loop.spawn_app(move |event, control_flow| match event {
-//         // Dont use run, move over to spawn
-//         Event::WindowEvent { event, .. } if !state.input(&event) => match event {
-//             WindowEvent::RedrawRequested => {
-//                 state.window().request_redraw();
-//                 if !surface_configured {
-//                     return;
-//                 }
-
-//                 let now = Instant::now();
-//                 state.delta = now - last_render;
-//                 last_render = now;
-
-//                 if let Some(v) = safe_get_subdivision_level() {
-//                     state.earth_state.set_subdivision_level(v);
-//                 }
-
-//                 state.update();
-//                 perf_metrics.time_new_frame();
-//                 perf_metrics.send_perf_event();
-
-//                 match state.render() {
-//                     Ok(_) => {}
-//                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-//                         state.resize(state.size)
-//                     }
-
-//                     #[cfg(feature = "debug")]
-//                     Err(wgpu::SurfaceError::OutOfMemory) => {
-//                         log::error!("Out of Memory!!!");
-//                         control_flow.exit();
-//                     }
-
-//                     #[cfg(feature = "debug")]
-//                     Err(wgpu::SurfaceError::Timeout) => {
-//                         log::warn!("Surface timeout")
-//                     }
-
-//                     _ => {}
-//                 }
-//             }
-
-//             WindowEvent::Resized(new_size) => {
-//                 surface_configured = true;
-//                 state.resize(new_size);
-//             }
-//             WindowEvent::CloseRequested
-//             | WindowEvent::KeyboardInput {
-//                 event:
-//                     KeyEvent {
-//                         state: ElementState::Pressed,
-//                         physical_key: PhysicalKey::Code(KeyCode::Escape),
-//                         ..
-//                     },
-//                 ..
-//             } => control_flow.exit(),
-//             _ => {}
-//         },
-//         _ => {}
-//     });
-// }
-
 struct App {
     state: Option<State>,
+    last_render: web_time::Instant,
+    perf_metrics: PerformanceMetrics,
+    proxy: Arc<EventLoopProxy<CustomEvent>>,
 }
 
 impl App {
-    pub fn new() -> Self {
-        Self { state: None }
+    pub fn new(proxy: EventLoopProxy<CustomEvent>) -> Self {
+        Self {
+            perf_metrics: PerformanceMetrics::new(),
+            state: None,
+            last_render: web_time::Instant::now(),
+            proxy: Arc::new(proxy),
+        }
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<CustomEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = WindowAttributes::default()
-            .with_title("Learn WGPU")
+            .with_title("Lets test WASM!")
             .with_inner_size(PhysicalSize::new(1000, 1000));
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        let window = Arc::new(
+            event_loop
+                .create_window(window_attributes)
+                .expect("Could not create window!"),
+        );
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -171,7 +89,7 @@ impl ApplicationHandler for App {
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| {
-                    let dst = doc.get_element_by_id("wasm-example")?;
+                    let dst = doc.get_element_by_id("map_canvas")?;
                     let canvas = web_sys::Element::from(window.canvas()?);
                     dst.append_child(&canvas).ok()?;
                     Some(())
@@ -179,14 +97,11 @@ impl ApplicationHandler for App {
                 .expect("Couldn't append canvas to document body.");
         }
 
-        //Fugly but idk what else to do...
-        let app_ref = Rc::new(RefCell::new(std::mem::replace(self, App::new())));
-        spawn_local({
-            let self_local = Rc::clone(&app_ref);
-            async move {
-                let state = State::new(window).await;
-                self_local.borrow_mut().state = Some(state);
-            }
+        let proxy = self.proxy.clone();
+        spawn_local(async move {
+            proxy
+                .send_event(CustomEvent::CreateState(State::new(window).await))
+                .unwrap();
         });
     }
 
@@ -196,36 +111,96 @@ impl ApplicationHandler for App {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
-        match event {
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        physical_key: PhysicalKey::Code(KeyCode::Escape),
-                        ..
-                    },
-                ..
-            } => event_loop.exit(),
-            WindowEvent::RedrawRequested => {
-                if let Some(state) = self.state.as_mut() {
-                    state.window.request_redraw();
+        if let Some(state) = self.state.as_mut() {
+            if state.input(&event) {
+                return;
+            }
+        }
+
+        match (event, self.state.is_some()) {
+            (WindowEvent::RedrawRequested, true) => {
+                let state = self.state.as_mut().expect("State should exist");
+                state.window().request_redraw();
+
+                let now = Instant::now();
+                state.delta = now - self.last_render;
+                self.last_render = now;
+
+                if let Some(v) = safe_get_subdivision_level() {
+                    state.earth_state.set_subdivision_level(v);
+                }
+
+                state.update();
+                self.perf_metrics.time_new_frame();
+                self.perf_metrics.send_perf_event();
+
+                match state.render() {
+                    Ok(_) => {}
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        state.resize(state.size)
+                    }
+
+                    #[cfg(feature = "debug")]
+                    Err(wgpu::SurfaceError::OutOfMemory) => {
+                        log::error!("Out of Memory!!!");
+                        event_loop.exit();
+                    }
+
+                    #[cfg(feature = "debug")]
+                    Err(wgpu::SurfaceError::Timeout) => {
+                        log::warn!("Surface timeout")
+                    }
+
+                    _ => {}
                 }
             }
+
+            (WindowEvent::Resized(new_size), true) => {
+                self.state.as_mut().unwrap().resize(new_size);
+            }
+            (
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
+                            ..
+                        },
+                    ..
+                },
+                _,
+            ) => event_loop.exit(),
             _ => {}
+        }
+    }
+
+    // Workaround because State::new needs to be async
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: CustomEvent) {
+        match event {
+            CustomEvent::CreateState(state) => {
+                self.state = Some(state);
+            }
         }
     }
 }
 
+#[derive(Debug)]
+enum CustomEvent {
+    CreateState(State),
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub fn run() {
+pub async fn run() {
+    let event_loop = EventLoop::<CustomEvent>::with_user_event().build().unwrap();
+    let proxy_event_loop = event_loop.create_proxy();
+
+    let mut _app = App::new(proxy_event_loop);
+
     #[cfg(target_arch = "wasm32")]
     {
-        let event_loop = EventLoop::new().unwrap();
-
-        let mut app = App::new();
-
+        init_debug();
         use winit::platform::web::EventLoopExtWebSys;
-        event_loop.spawn_app(app);
+        event_loop.spawn_app(_app);
     }
 }
