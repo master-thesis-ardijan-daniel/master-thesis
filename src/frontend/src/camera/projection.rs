@@ -1,5 +1,6 @@
 use glam::{Mat4, Vec2};
 
+#[derive(Debug)]
 pub struct Projection {
     pub size: Vec2,
     pub fovy: f32,

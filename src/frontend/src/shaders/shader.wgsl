@@ -35,8 +35,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     const PI: f32 = 3.14159265358979323846264338327950288;
 
     let pos = normalize(in.pos);
-    let u = (atan2(pos.x, -pos.y) / (2. * PI)) + 0.5;
-    let v = (asin(pos.z)/PI) + 0.5;
+    let u = atan2(pos.x, -pos.y) / (2. * PI) + 0.5;
+    let v = asin(pos.z)/PI  + 0.5;
 
     return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v));
 }
