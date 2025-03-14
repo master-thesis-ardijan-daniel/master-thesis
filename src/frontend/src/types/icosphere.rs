@@ -37,6 +37,7 @@ impl Icosphere {
 
         // Calculate the next 5 vertecies position
         let base_angle = 2. * PI * 1. / 5.;
+        #[allow(clippy::needless_range_loop)]
         for i in 1..=10 {
             let mut angle = 2. * PI * i as f32 / 5.;
             let mut height = pentagram_height;
