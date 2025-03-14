@@ -158,19 +158,6 @@ impl ApplicationHandler<CustomEvent> for App {
             (WindowEvent::Resized(new_size), true) => {
                 self.state.as_mut().unwrap().resize(new_size);
             }
-            (
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::Escape),
-                            ..
-                        },
-                    ..
-                },
-                _,
-            ) => event_loop.exit(),
             _ => {}
         }
     }
