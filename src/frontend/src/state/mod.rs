@@ -57,6 +57,14 @@ impl State {
             .await
             .unwrap();
 
+        {
+            let config = surface
+                .get_default_config(&adapter, size.width.max(1), size.height.max(1))
+                .unwrap();
+
+            surface.configure(&device, &config);
+        }
+
         let shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/shader.wgsl"));
 
         let surface_caps = surface.get_capabilities(&adapter);
@@ -169,6 +177,7 @@ impl State {
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
+
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

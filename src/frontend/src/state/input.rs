@@ -38,6 +38,7 @@ impl State {
                 ..
             } => {
                 self.camera_state.controller.process_cursor_moved(*x, *y);
+
                 true
             }
 
