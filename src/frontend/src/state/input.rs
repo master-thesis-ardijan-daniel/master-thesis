@@ -23,6 +23,14 @@ impl State {
                 });
             }
 
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Right,
+                ..
+            } => {
+                self.camera_state.controller.tilting = state.is_pressed();
+            }
+
             WindowEvent::CursorEntered { .. } => {
                 self.window.set_cursor(CursorIcon::Grab);
             }
@@ -37,7 +45,7 @@ impl State {
             } => {
                 self.camera_state.controller.process_cursor_moved(*x, *y);
 
-                if self.camera_state.controller.rotating {
+                if self.camera_state.controller.rotating || self.camera_state.controller.tilting {
                     self.window.request_redraw();
                 } else {
                     self.camera_state
