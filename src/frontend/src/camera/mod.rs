@@ -13,6 +13,8 @@ pub use state::CameraState;
 
 mod uniform;
 
+const R: f32 = 0.8;
+
 #[derive(Debug)]
 pub struct Camera {
     pub orientation: Quat,
@@ -41,7 +43,7 @@ impl Camera {
     ) {
         let visible_height = 2.0 * self.radius * (projection.fovy * 0.5).tan();
 
-        let object_screen_radius = (object_radius / visible_height) * projection.size.max_element();
+        let object_screen_radius = (object_radius / visible_height) * projection.size.min_element();
 
         let screen_center = projection.size * 0.5;
 
@@ -66,7 +68,7 @@ impl Camera {
         let axis = axis.normalize();
 
         let angle = {
-            let distance = Vec2::distance(p1, p2) / 2.;
+            let distance = Vec2::distance(p1, p2) / (2. * R);
 
             2. * distance.clamp(-1., 1.).asin()
         };
@@ -75,14 +77,13 @@ impl Camera {
 
         self.orientation = (rotation * self.orientation).normalize();
     }
-
     fn point_to_sphere(point @ Vec2 { x, y }: Vec2) -> Vec3 {
         let d = point.length_squared();
 
-        let z = if d < FRAC_1_SQRT_2 {
-            (1. - d * d).sqrt()
+        let z = if d < R * FRAC_1_SQRT_2 {
+            (R * R - d * d).sqrt()
         } else {
-            let t = 1. / SQRT_2;
+            let t = R / SQRT_2;
             t * t / d
         };
 
