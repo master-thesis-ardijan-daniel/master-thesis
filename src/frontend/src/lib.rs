@@ -39,17 +39,16 @@ pub fn safe_get_subdivision_level() -> Option<usize> {
 #[wasm_bindgen(start)]
 pub async fn run() {
     use app::{App, CustomEvent};
-    use winit::event_loop::EventLoop;
+    use winit::{event_loop::EventLoop, platform::web::EventLoopExtWebSys};
 
     let event_loop = EventLoop::<CustomEvent>::with_user_event().build().unwrap();
     let proxy_event_loop = event_loop.create_proxy();
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
-    let mut _app = App::new(proxy_event_loop);
+    let app = App::new(proxy_event_loop);
 
     #[cfg(feature = "debug")]
     init_debug();
 
-    use winit::platform::web::EventLoopExtWebSys;
-    event_loop.spawn_app(_app);
+    event_loop.spawn_app(app);
 }

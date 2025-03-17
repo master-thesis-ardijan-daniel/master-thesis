@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use web_time::{Duration, Instant};
 use winit::{
@@ -20,7 +20,7 @@ pub struct App {
     state: Option<State>,
     last_render: Instant,
     perf_metrics: PerformanceMetrics,
-    proxy: Rc<EventLoopProxy<CustomEvent>>,
+    proxy: EventLoopProxy<CustomEvent>,
 }
 
 impl App {
@@ -29,7 +29,7 @@ impl App {
             perf_metrics: PerformanceMetrics::new(),
             state: None,
             last_render: Instant::now(),
-            proxy: Rc::new(proxy),
+            proxy,
         }
     }
 }
