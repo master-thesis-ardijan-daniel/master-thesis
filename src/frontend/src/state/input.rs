@@ -58,13 +58,9 @@ impl State {
                 ..
             } => {
                 if state.is_pressed() {
-                    if self.render_wireframe {
-                        self.set_render_wireframe(false);
-                        return true;
-                    }
-                    self.set_render_wireframe(true);
-                    return true;
+                    self.set_render_wireframe(!self.render_wireframe);
                 }
+
                 true
             }
 
