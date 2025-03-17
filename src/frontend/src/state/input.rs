@@ -6,7 +6,7 @@ use winit::{
 
 use super::State;
 
-impl State<'_> {
+impl State {
     pub fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::MouseInput {
@@ -15,7 +15,7 @@ impl State<'_> {
                 ..
             } => {
                 self.camera_state.controller.rotating = state.is_pressed();
-                self.window.set_cursor_icon(if state.is_pressed() {
+                self.window.set_cursor(if state.is_pressed() {
                     CursorIcon::Grabbing
                 } else {
                     CursorIcon::Grab
@@ -24,12 +24,12 @@ impl State<'_> {
             }
 
             WindowEvent::CursorEntered { .. } => {
-                self.window.set_cursor_icon(CursorIcon::Grab);
+                self.window.set_cursor(CursorIcon::Grab);
                 true
             }
 
             WindowEvent::CursorLeft { .. } => {
-                self.window.set_cursor_icon(CursorIcon::Default);
+                self.window.set_cursor(CursorIcon::Default);
                 true
             }
 
@@ -38,6 +38,7 @@ impl State<'_> {
                 ..
             } => {
                 self.camera_state.controller.process_cursor_moved(*x, *y);
+
                 true
             }
 
