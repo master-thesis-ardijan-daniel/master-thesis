@@ -1,4 +1,4 @@
-use std::f32::consts::SQRT_2;
+use std::f32::consts::{FRAC_1_SQRT_2, SQRT_2};
 
 use glam::{Mat4, Quat, Vec2, Vec3};
 
@@ -79,7 +79,7 @@ impl Camera {
     fn point_to_sphere(point @ Vec2 { x, y }: Vec2) -> Vec3 {
         let d = point.length_squared();
 
-        let z = if d < 0.707_106_77 {
+        let z = if d < FRAC_1_SQRT_2 {
             (1. - d * d).sqrt()
         } else {
             let t = 1. / SQRT_2;
