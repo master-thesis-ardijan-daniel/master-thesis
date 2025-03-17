@@ -1,4 +1,4 @@
-use std::{collections::HashMap, f32::consts::PI};
+use std::{borrow::Cow, collections::HashMap, f32::consts::PI};
 
 use crate::types::Point;
 
@@ -118,11 +118,11 @@ impl Icosphere {
     pub fn get_subdivison_level_vertecies_and_faces(
         &mut self,
         mut level: usize,
-    ) -> (&[Vertex], &[[u32; 3]]) {
+    ) -> (&[Vertex], Cow<'_, [u32]>) {
         level = self.subdivide_if_nessairy_and_clamp_level(level);
         (
             &self.vertecies[..self.vertex_subdiv_index[level]],
-            &self.faces[level],
+            Cow::Borrowed(self.faces[level].as_flattened()),
         )
     }
 
@@ -130,17 +130,20 @@ impl Icosphere {
     pub fn get_subdivison_level_vertecies_and_lines(
         &mut self,
         mut level: usize,
-    ) -> (&[Vertex], Vec<[u32; 2]>) {
+    ) -> (&[Vertex], Cow<'_, [u32]>) {
         level = self.subdivide_if_nessairy_and_clamp_level(level);
 
         let mut lines = vec![];
-        for face in self.faces[level].clone() {
+        for face in &self.faces[level] {
             lines.push([face[0], face[1]]);
             lines.push([face[1], face[2]]);
             lines.push([face[2], face[0]]);
         }
 
-        (&self.vertecies[..self.vertex_subdiv_index[level]], lines)
+        (
+            &self.vertecies[..self.vertex_subdiv_index[level]],
+            Cow::Owned(lines.into_flattened()),
+        )
     }
     // This function assumes the original vertecies are placed where they need to be.
     // It will only apply the transformation function on the new vertecies.

@@ -179,20 +179,12 @@ impl EarthState {
             return;
         }
 
-        let lines;
-        let faces;
-        let icosphere_faces;
-        let icosphere_verts;
-        if !self.current_output_as_lines {
-            (icosphere_verts, faces) = self
-                .icosphere
-                .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level);
-            icosphere_faces = faces.as_flattened();
+        let (icosphere_verts, icosphere_faces) = if self.current_output_as_lines {
+            self.icosphere
+                .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level)
         } else {
-            (icosphere_verts, lines) = self
-                .icosphere
-                .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level);
-            icosphere_faces = lines.as_flattened();
+            self.icosphere
+                .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level)
         };
 
         self.num_vertices = icosphere_verts.len() as u32;
@@ -211,7 +203,7 @@ impl EarthState {
 
         self.index_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("earth_index_buffer"),
-            contents: bytemuck::cast_slice(icosphere_faces),
+            contents: bytemuck::cast_slice(&icosphere_faces),
             usage: BufferUsages::INDEX,
         });
 
