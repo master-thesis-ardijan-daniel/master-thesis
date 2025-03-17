@@ -26,63 +26,43 @@ impl Icosphere {
         min_subdiv_level: usize,
         vertex_transformation_function: fn(Vertex) -> Vertex,
     ) -> Self {
-        let d = (1. + PHI.powi(2)).sqrt();
-        let pentagram_height = 1.0 / d;
-        let pentagram_radius = PHI / d;
-
-        let mut vertecies: [Vertex; 12] = [[0., 0., 0.].into(); 12];
         let mut faces: [[u32; 3]; 20] = [[0, 0, 0]; 20];
-        // Top vertex
-        vertecies[0] = vertex_transformation_function(Into::<Point>::into([0., 0., 1.])); // Top vertex
 
-        // Calculate the next 5 vertecies position
-        let base_angle = 2. * PI * 1. / 5.;
+        let vertecies: [Vertex; 12] = [
+            vertex_transformation_function([-1., PHI, 0.].into()),
+            vertex_transformation_function([1., PHI, 0.].into()),
+            vertex_transformation_function([-1., -PHI, 0.].into()),
+            vertex_transformation_function([1., -PHI, 0.].into()),
+            vertex_transformation_function([0., -1., PHI].into()),
+            vertex_transformation_function([0., 1., PHI].into()),
+            vertex_transformation_function([0., -1., -PHI].into()),
+            vertex_transformation_function([0., 1., -PHI].into()),
+            vertex_transformation_function([PHI, 0., -1.].into()),
+            vertex_transformation_function([PHI, 0., 1.].into()),
+            vertex_transformation_function([-PHI, 0., -1.].into()),
+            vertex_transformation_function([-PHI, 0., 1.].into()),
+        ];
 
-        #[allow(clippy::needless_range_loop)]
-        for i in 1..=10 {
-            let mut angle = 2. * PI * i as f32 / 5.;
-            let mut height = pentagram_height;
-            if i > 5 {
-                angle -= base_angle / 2.;
-                height = -pentagram_height;
-            }
-
-            let x = pentagram_radius * angle.cos();
-            let y = pentagram_radius * angle.sin();
-            let z = height;
-            vertecies[i] = vertex_transformation_function(Into::<Point>::into([x, y, z]));
-        }
-
-        // Bottom vertex
-        vertecies[11] = vertex_transformation_function(Into::<Point>::into([0., 0., -1.])); // Top vertex
-
-        faces[0] = [0, 2, 1];
-        faces[1] = [0, 3, 2];
-        faces[2] = [0, 4, 3];
-        faces[3] = [0, 5, 4];
-        faces[4] = [0, 1, 5];
-
-        // Fill in the central faces
-        faces[5] = [1, 2, 7];
-        faces[6] = [1, 7, 6];
-
-        faces[7] = [2, 3, 8];
-        faces[8] = [2, 8, 7];
-
-        faces[9] = [3, 4, 9];
-        faces[10] = [3, 9, 8];
-
-        faces[11] = [4, 5, 10];
-        faces[12] = [4, 10, 9];
-
-        faces[13] = [5, 1, 6];
-        faces[14] = [5, 6, 10];
-
-        faces[15] = [5 + 1, 5 + 2, 11];
-        faces[16] = [5 + 2, 5 + 3, 11];
-        faces[17] = [5 + 3, 5 + 4, 11];
-        faces[18] = [5 + 4, 5 + 5, 11];
-        faces[19] = [5 + 5, 5 + 1, 11];
+        faces[0] = [11, 0, 5];
+        faces[1] = [5, 0, 1];
+        faces[2] = [1, 0, 7];
+        faces[3] = [7, 0, 10];
+        faces[4] = [10, 0, 11];
+        faces[5] = [5, 1, 9];
+        faces[6] = [11, 5, 4];
+        faces[7] = [10, 11, 2];
+        faces[8] = [7, 10, 6];
+        faces[9] = [1, 7, 8];
+        faces[10] = [9, 3, 4];
+        faces[11] = [4, 3, 2];
+        faces[12] = [2, 3, 6];
+        faces[13] = [6, 3, 8];
+        faces[14] = [8, 3, 9];
+        faces[15] = [9, 4, 5];
+        faces[16] = [4, 2, 11];
+        faces[17] = [2, 6, 10];
+        faces[18] = [6, 8, 7];
+        faces[19] = [8, 9, 1];
 
         let mut new_icosphere = Self {
             center,
