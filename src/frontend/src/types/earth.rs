@@ -157,22 +157,6 @@ impl EarthState {
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
-        queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &self.texture_buffer,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: TextureAspect::All,
-            },
-            &self.current_texture,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(self.texture_size.width * 4),
-                rows_per_image: Some(self.texture_size.height),
-            },
-            self.texture_size,
-        );
-
         if self.current_subdivision_level == self.previous_subdivision_level
             && self.previous_output_as_lines == self.current_output_as_lines
         {
@@ -183,6 +167,22 @@ impl EarthState {
             self.icosphere
                 .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level)
         } else {
+            queue.write_texture(
+                TexelCopyTextureInfo {
+                    texture: &self.texture_buffer,
+                    mip_level: 0,
+                    origin: Origin3d::ZERO,
+                    aspect: TextureAspect::All,
+                },
+                &self.current_texture,
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.texture_size.width * 4),
+                    rows_per_image: Some(self.texture_size.height),
+                },
+                self.texture_size,
+            );
+
             self.icosphere
                 .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level)
         };

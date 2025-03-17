@@ -8,7 +8,7 @@ use winit::{
 use super::State;
 
 impl State {
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
+    pub fn input(&mut self, event: &WindowEvent) {
         match event {
             WindowEvent::MouseInput {
                 state,
@@ -21,17 +21,14 @@ impl State {
                 } else {
                     CursorIcon::Grab
                 });
-                true
             }
 
             WindowEvent::CursorEntered { .. } => {
                 self.window.set_cursor(CursorIcon::Grab);
-                true
             }
 
             WindowEvent::CursorLeft { .. } => {
                 self.window.set_cursor(CursorIcon::Default);
-                true
             }
 
             WindowEvent::CursorMoved {
@@ -40,12 +37,18 @@ impl State {
             } => {
                 self.camera_state.controller.process_cursor_moved(*x, *y);
 
-                true
+                if self.camera_state.controller.rotating {
+                    self.window.request_redraw();
+                } else {
+                    self.camera_state
+                        .controller
+                        .update_camera(web_time::Duration::ZERO);
+                }
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_state.controller.process_mouse_wheel(delta);
-                true
+                self.window.request_redraw();
             }
 
             WindowEvent::KeyboardInput {
@@ -59,12 +62,11 @@ impl State {
             } => {
                 if state.is_pressed() {
                     self.set_render_wireframe(!self.render_wireframe);
+                    self.window.request_redraw();
                 }
-
-                true
             }
 
-            _ => false,
+            _ => {}
         }
     }
 }

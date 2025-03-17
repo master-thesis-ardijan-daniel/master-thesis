@@ -117,11 +117,7 @@ impl ApplicationHandler<CustomEvent> for App {
                 state.window.request_redraw();
             }
 
-            (event, Some(state)) => {
-                if state.input(&event) {
-                    state.window.request_redraw();
-                }
-            }
+            (event, Some(state)) => state.input(&event),
 
             _ => {}
         }
