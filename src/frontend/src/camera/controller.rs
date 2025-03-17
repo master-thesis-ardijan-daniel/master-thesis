@@ -13,6 +13,8 @@ pub struct CameraController {
     sensitivity: f32,
 
     pub rotating: bool,
+    pub tilting: bool,
+
     pub last_position: Vec2,
     pub current_position: Vec2,
 
@@ -40,6 +42,8 @@ impl CameraController {
             sensitivity,
 
             rotating: false,
+            tilting: false,
+
             last_position: Vec2::ZERO,
             current_position: Vec2::ZERO,
 
@@ -65,6 +69,16 @@ impl CameraController {
                 MouseScrollDelta::LineDelta(_, scroll) => scroll * 0.5,
                 MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => *scroll as f32,
             };
+
+        self.camera.angle = {
+            let min = 0.;
+            let max = self.camera.angle;
+            let r_min = 1.;
+            let r_max = 6.;
+            let r = self.camera.radius.clamp(r_min, r_max);
+
+            max - ((r - r_min) / (r_max - r_min)) * (max - min)
+        };
     }
 
     pub fn update_camera(&mut self, duration: Duration) {
@@ -83,6 +97,12 @@ impl CameraController {
                 self.size,
                 &self.projection,
             );
+        }
+
+        if self.tilting && self.camera.radius < 1.1 {
+            let sensitivity = self.sensitivity * (self.camera.radius / 100_000.).sqrt() * duration;
+            let factor = self.last_position.y - self.current_position.y;
+            self.camera.tilt(factor * sensitivity);
         }
 
         self.last_position = self.current_position;

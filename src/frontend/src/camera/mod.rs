@@ -1,6 +1,6 @@
-use std::f32::consts::{FRAC_1_SQRT_2, SQRT_2};
+use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2, SQRT_2};
 
-use glam::{Mat4, Quat, Vec2, Vec3};
+use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec3Swizzles};
 
 mod controller;
 pub use controller::CameraController;
@@ -19,6 +19,7 @@ const R: f32 = 0.8;
 pub struct Camera {
     pub orientation: Quat,
     pub radius: f32,
+    pub angle: f32,
 }
 
 impl Camera {
@@ -26,11 +27,18 @@ impl Camera {
         Self {
             orientation: Quat::IDENTITY,
             radius,
+            angle: 0.,
         }
     }
 
     pub fn calc_matrix(&self) -> Mat4 {
-        Mat4::from_translation(Vec3::Z * self.radius) * Mat4::from_quat(self.orientation)
+        Mat4::from_rotation_x(self.angle)
+            * Mat4::from_translation(Vec3::Z * self.radius)
+            * Mat4::from_quat(self.orientation)
+    }
+
+    pub fn tilt(&mut self, delta: f32) {
+        self.angle = (self.angle + delta).clamp(0., FRAC_PI_2);
     }
 
     pub fn rotate(
@@ -50,11 +58,12 @@ impl Camera {
         let p1 = Vec2::new(-1., 1.) * (previous_position - screen_center) / object_screen_radius;
         let p2 = Vec2::new(-1., 1.) * (current_position - screen_center) / object_screen_radius;
 
-        let p2 = {
-            let movement = p2 - p1;
+        let p2 = p1 + (p2 - p1) * sensitivity;
 
-            p1 + movement * sensitivity
-        };
+        let transformation = Mat3::from_rotation_x(-self.angle);
+
+        let p1 = (transformation * p1.extend(0.)).xy();
+        let p2 = (transformation * p2.extend(0.)).xy();
 
         let v1 = Self::point_to_sphere(p1);
         let v2 = Self::point_to_sphere(p2);
@@ -77,6 +86,7 @@ impl Camera {
 
         self.orientation = (rotation * self.orientation).normalize();
     }
+
     fn point_to_sphere(point @ Vec2 { x, y }: Vec2) -> Vec3 {
         let d = point.length_squared();
 
