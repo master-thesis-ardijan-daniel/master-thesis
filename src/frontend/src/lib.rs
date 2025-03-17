@@ -1,7 +1,5 @@
-use app::{App, CustomEvent};
 use wasm_bindgen::prelude::*;
 use web_sys::js_sys;
-use winit::event_loop::EventLoop;
 
 pub mod state;
 pub mod types;
@@ -40,6 +38,9 @@ pub fn safe_get_subdivision_level() -> Option<usize> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub async fn run() {
+    use app::{App, CustomEvent};
+    use winit::event_loop::EventLoop;
+
     let event_loop = EventLoop::<CustomEvent>::with_user_event().build().unwrap();
     let proxy_event_loop = event_loop.create_proxy();
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
