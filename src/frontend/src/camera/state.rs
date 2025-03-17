@@ -22,7 +22,7 @@ impl CameraState {
         let controller = {
             let projection =
                 Projection::new(size.width, size.height, 60.0_f32.to_radians(), 0.0001, 100.);
-            let camera = Camera::new(20.);
+            let camera = Camera::new(2.);
 
             CameraController::new(1., 200., 1.0001, 50., 1., projection, camera)
         };
