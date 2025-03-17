@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use web_time::{Duration, Instant};
+use web_time::Duration;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::WindowEvent,
+    event::{StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoopProxy},
     window::WindowAttributes,
 };
@@ -18,7 +18,6 @@ pub enum CustomEvent {
 
 pub struct App {
     state: Option<State>,
-    last_render: Instant,
     perf_metrics: PerformanceMetrics,
     proxy: EventLoopProxy<CustomEvent>,
 }
@@ -28,7 +27,6 @@ impl App {
         Self {
             perf_metrics: PerformanceMetrics::new(),
             state: None,
-            last_render: Instant::now(),
             proxy,
         }
     }
@@ -70,6 +68,22 @@ impl ApplicationHandler<CustomEvent> for App {
         }
     }
 
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+
+        if let StartCause::WaitCancelled {
+            start,
+            requested_resume,
+        } = cause
+        {
+            state.delta = requested_resume
+                .map(|r| r.duration_since(start))
+                .unwrap_or(Duration::from_millis(20));
+        }
+    }
+
     fn window_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -78,11 +92,6 @@ impl ApplicationHandler<CustomEvent> for App {
     ) {
         match (event, &mut self.state) {
             (WindowEvent::RedrawRequested, Some(state)) => {
-                let now = Instant::now();
-                // Need to cap delta, since time between events can now get very large
-                state.delta = (now - self.last_render).min(Duration::from_millis(20));
-                self.last_render = now;
-
                 if let Some(v) = safe_get_subdivision_level() {
                     state.earth_state.set_subdivision_level(v);
                 }
