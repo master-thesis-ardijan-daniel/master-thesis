@@ -1,3 +1,5 @@
+use std::f32::consts::SQRT_2;
+
 use glam::{Mat4, Quat, Vec2, Vec3};
 
 mod controller;
@@ -77,10 +79,10 @@ impl Camera {
     fn point_to_sphere(point @ Vec2 { x, y }: Vec2) -> Vec3 {
         let d = point.length_squared();
 
-        let z = if d < 0.5 {
-            (1. - d).sqrt()
+        let z = if d < 0.707_106_77 {
+            (1. - d * d).sqrt()
         } else {
-            let t = 1. / (2.0f32).sqrt();
+            let t = 1. / SQRT_2;
             t * t / d
         };
 
