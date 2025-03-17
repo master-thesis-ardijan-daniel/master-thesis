@@ -3,7 +3,6 @@ use std::sync::Arc;
 use web_time::Duration;
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
     event::{StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoopProxy},
     window::WindowAttributes,
@@ -36,7 +35,7 @@ impl ApplicationHandler<CustomEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = WindowAttributes::default()
             .with_title("Lets test WASM!")
-            .with_inner_size(PhysicalSize::new(1000, 1000));
+            .with_maximized(true);
 
         let _window = Arc::new(
             event_loop

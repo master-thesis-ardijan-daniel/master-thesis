@@ -3,24 +3,30 @@
   <head>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lets test WASM!</title>
     <style>
+      html, body,#map_canvas {
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden;
+        background: rgba(0,0,0,1);
+      }
+
       #debugInfo {
         position: absolute;
         top: 0vh;
         left: 0px;
         background: rgba(200, 200, 200, 0.7);
         color: white;
-        padding: 10px;
         border-radius: 5px;
         font-family: Arial, sans-serif;
         display: none;
       }
 
       #map_canvas> canvas {
-        width:1000px;
-        height:1000px;
-        contain: size;
+        width: 100vw;
+        height:100vh;
       }
     </style>
   </head>
