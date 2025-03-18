@@ -96,6 +96,7 @@ impl ApplicationHandler<CustomEvent> for App {
                 }
 
                 state.update();
+
                 self.perf_metrics.time_new_frame();
                 self.perf_metrics.send_perf_event();
 

@@ -6,6 +6,8 @@ use wgpu::{
 };
 use winit::dpi::PhysicalSize;
 
+use crate::AnimationState;
+
 use super::{Camera, CameraController, Projection};
 
 #[derive(Debug)]
@@ -64,11 +66,13 @@ impl CameraState {
         }
     }
 
-    pub fn update(&mut self, queue: &Queue, delta: Duration) {
-        self.controller.update_camera(delta);
+    pub fn update(&mut self, queue: &Queue, delta: Duration) -> AnimationState {
+        let animation_state = self.controller.update_camera(delta);
 
         let uniform = self.controller.update_view_projection();
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[uniform]));
+
+        animation_state
     }
 
     pub fn render(&mut self, render_pass: &mut RenderPass<'_>) -> u32 {

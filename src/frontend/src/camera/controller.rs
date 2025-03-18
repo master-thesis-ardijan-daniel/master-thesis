@@ -1,4 +1,5 @@
 use crate::camera::uniform::CameraUniform;
+use crate::AnimationState;
 
 use super::{Camera, Projection};
 use glam::Vec2;
@@ -81,7 +82,7 @@ impl CameraController {
         };
     }
 
-    pub fn update_camera(&mut self, duration: Duration) {
+    pub fn update_camera(&mut self, duration: Duration) -> AnimationState {
         let duration = duration.as_secs_f32();
 
         let scroll_factor =
@@ -107,6 +108,8 @@ impl CameraController {
 
         self.last_position = self.current_position;
         self.scroll = 0.0;
+
+        self.camera.animate(duration)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
