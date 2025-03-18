@@ -29,6 +29,11 @@ impl State {
                 ..
             } => {
                 self.camera_state.controller.tilting = state.is_pressed();
+                self.window.set_cursor(if state.is_pressed() {
+                    CursorIcon::NsResize
+                } else {
+                    CursorIcon::Grab
+                });
             }
 
             WindowEvent::CursorEntered { .. } => {
