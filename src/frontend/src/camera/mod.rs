@@ -11,30 +11,42 @@ pub use projection::Projection;
 mod state;
 pub use state::CameraState;
 
+use crate::AnimationState;
+
 mod uniform;
 
 const R: f32 = 0.8;
 
 #[derive(Debug)]
 pub struct Camera {
-    pub orientation: Quat,
     pub radius: f32,
     pub angle: f32,
+
+    orientation: Quat,
+    current_orientation: Quat,
+
+    angular_velocity: Quat,
+    friction: f32,
 }
 
 impl Camera {
     pub fn new(radius: f32) -> Self {
         Self {
-            orientation: Quat::IDENTITY,
             radius,
             angle: 0.,
+
+            orientation: Quat::IDENTITY,
+            current_orientation: Quat::IDENTITY,
+
+            angular_velocity: Quat::IDENTITY,
+            friction: 5.,
         }
     }
 
     pub fn calc_matrix(&self) -> Mat4 {
         Mat4::from_rotation_x(self.angle)
             * Mat4::from_translation(Vec3::Z * self.radius)
-            * Mat4::from_quat(self.orientation)
+            * Mat4::from_quat(self.current_orientation)
     }
 
     pub fn tilt(&mut self, delta: f32) {
@@ -57,8 +69,6 @@ impl Camera {
 
         let p1 = Vec2::new(-1., 1.) * (previous_position - screen_center) / object_screen_radius;
         let p2 = Vec2::new(-1., 1.) * (current_position - screen_center) / object_screen_radius;
-
-        let p2 = p1 + (p2 - p1) * sensitivity;
 
         let transformation = Mat3::from_rotation_x(-self.angle);
 
@@ -85,6 +95,34 @@ impl Camera {
         let rotation = Quat::from_axis_angle(axis, angle);
 
         self.orientation = (rotation * self.orientation).normalize();
+
+        let impulse_strength = 3.0;
+        let impulse = Quat::from_axis_angle(axis, angle * impulse_strength * sensitivity);
+
+        self.angular_velocity = (impulse * self.angular_velocity).normalize();
+    }
+
+    pub fn animate(&mut self, duration: f32) -> AnimationState {
+        if !self.angular_velocity.is_near_identity() {
+            let (axis, angle) = self.angular_velocity.to_axis_angle();
+
+            let frame_rotation = Quat::from_axis_angle(axis, angle * duration);
+
+            self.current_orientation = (frame_rotation * self.current_orientation).normalize();
+
+            let friction_factor = (-self.friction * duration).exp();
+            let (axis, angle) = self.angular_velocity.to_axis_angle();
+
+            self.angular_velocity = Quat::from_axis_angle(axis, angle * friction_factor);
+
+            if self.angular_velocity.is_near_identity() {
+                self.angular_velocity = Quat::IDENTITY;
+            }
+
+            AnimationState::Animating
+        } else {
+            AnimationState::Finished
+        }
     }
 
     fn point_to_sphere(point @ Vec2 { x, y }: Vec2) -> Vec3 {

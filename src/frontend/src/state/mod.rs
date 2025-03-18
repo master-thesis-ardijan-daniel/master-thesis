@@ -7,6 +7,11 @@ use winit::window::Window;
 
 mod input;
 
+pub enum AnimationState {
+    Animating,
+    Finished,
+}
+
 #[derive(Debug)]
 pub struct State {
     pub surface: wgpu::Surface<'static>,
@@ -217,7 +222,10 @@ impl State {
 
     pub fn update(&mut self) {
         self.earth_state.update(&self.queue, &self.device);
-        self.camera_state.update(&self.queue, self.delta);
+
+        if let AnimationState::Animating = self.camera_state.update(&self.queue, self.delta) {
+            self.window.request_redraw();
+        }
     }
 
     pub fn set_render_wireframe(&mut self, render_as_wireframe: bool) {
