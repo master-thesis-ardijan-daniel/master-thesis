@@ -101,7 +101,7 @@ impl CameraController {
         }
 
         if self.tilting && self.camera.radius < 1.1 {
-            let sensitivity = self.sensitivity * (self.camera.radius / 100_000.).sqrt() * duration;
+            let sensitivity = self.sensitivity * (self.camera.radius / 1e7).sqrt() * duration;
             let factor = self.last_position.y - self.current_position.y;
             self.camera.tilt(factor * sensitivity);
         }
