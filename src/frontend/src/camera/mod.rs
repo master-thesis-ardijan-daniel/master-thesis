@@ -23,6 +23,7 @@ pub struct Camera {
     current_radius: f32,
 
     pub angle: f32,
+    current_angle: f32,
 
     orientation: Quat,
     current_orientation: Quat,
@@ -38,6 +39,7 @@ impl Camera {
             current_radius: radius,
 
             angle: 0.,
+            current_angle: 0.,
 
             orientation: Quat::IDENTITY,
             current_orientation: Quat::IDENTITY,
@@ -48,7 +50,7 @@ impl Camera {
     }
 
     pub fn calc_matrix(&self) -> Mat4 {
-        Mat4::from_rotation_x(self.angle)
+        Mat4::from_rotation_x(self.current_angle)
             * Mat4::from_translation(Vec3::Z * self.current_radius)
             * Mat4::from_quat(self.current_orientation)
     }
@@ -108,6 +110,8 @@ impl Camera {
     pub fn animate(&mut self, duration: f32) -> AnimationState {
         let mut animation_state = AnimationState::Finished;
 
+        let friction_factor = (-self.friction * duration).exp();
+
         if !self.angular_velocity.is_near_identity() {
             let (axis, angle) = self.angular_velocity.to_axis_angle();
 
@@ -115,7 +119,6 @@ impl Camera {
 
             self.current_orientation = (frame_rotation * self.current_orientation).normalize();
 
-            let friction_factor = (-self.friction * duration).exp();
             let (axis, angle) = self.angular_velocity.to_axis_angle();
 
             self.angular_velocity = Quat::from_axis_angle(axis, angle * friction_factor);
@@ -128,12 +131,20 @@ impl Camera {
         }
 
         if self.radius != self.current_radius {
-            let friction_factor = (self.friction * duration).exp();
-
             self.current_radius += -(self.current_radius - self.radius) * friction_factor * 0.1;
 
             if (self.radius - self.current_radius).abs() < 1e-3 {
                 self.current_radius = self.radius;
+            }
+
+            animation_state = AnimationState::Animating;
+        }
+
+        if self.angle != self.current_angle {
+            self.current_angle += -(self.current_angle - self.angle) * friction_factor * 0.1;
+
+            if (self.angle - self.current_angle).abs() < 1e-3 {
+                self.current_angle = self.angle;
             }
 
             animation_state = AnimationState::Animating;
