@@ -5,6 +5,7 @@ use web_time::Duration;
 use wgpu::FragmentState;
 use winit::window::Window;
 
+mod depth_texture;
 mod input;
 
 pub enum AnimationState {
