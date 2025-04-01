@@ -20,7 +20,7 @@ let
       fileset = lib.fileset.unions [
         (craneLib.fileset.commonCargoSources root)
         (lib.fileset.fileFilter
-          (file: lib.any file.hasExt [ "html" "scss" "js" "wgsl" ])
+          (file: lib.any file.hasExt [ "html" "scss" "js" "wgsl" "jpg" ])
           root
         )
       ];
