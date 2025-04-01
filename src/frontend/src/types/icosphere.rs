@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, f32::consts::PI};
+use std::{borrow::Cow, collections::HashMap};
 
 use crate::types::Point;
 

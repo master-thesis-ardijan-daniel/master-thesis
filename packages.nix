@@ -33,7 +33,9 @@ let
   };
 
   native = rec {
-    args = commonArgs;
+    args = commonArgs // {
+      cargoExtraArgs = "--package=backend --locked";
+    };
     cargoArtifacts = craneLib.buildDepsOnly args;
   };
 
@@ -50,7 +52,7 @@ let
     let
       toplevel = src;
     in
-    src: commonArgs // {
+    src: {
       inherit (craneLib.crateNameFromCargoToml { src = toplevel; }) version;
       inherit (craneLib.crateNameFromCargoToml { inherit src; }) pname;
     };
@@ -62,17 +64,24 @@ in
 
       thesis-fmt = craneLib.cargoFmt { inherit src; };
 
-      thesis-clippy = craneLib.cargoClippy (
+      backend-clippy = craneLib.cargoClippy (
         native.args // {
           inherit (native) cargoArtifacts;
-          cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          cargoClippyExtraArgs = "--package=backend -- --deny warnings";
 
           ASSETS_DIR = "";
         }
       );
 
+      frontend-clippy = craneLib.cargoClippy (
+        wasm.args // {
+          inherit (wasm) cargoArtifacts;
+          cargoClippyExtraArgs = "--package=frontend -- --deny warnings";
+        }
+      );
+
       thesis-nextest = craneLib.cargoNextest (
-        native.args // {
+        commonArgs // {
           inherit (native) cargoArtifacts;
           cargoNextestExtraArgs = "--no-tests=pass";
           doCheck = true;
@@ -86,7 +95,7 @@ in
       default = config.packages.backend;
 
       backend = craneLib.buildPackage (
-        crateArgs ./src/backend // {
+        crateArgs ./src/backend // native.args // {
           inherit (native) cargoArtifacts;
 
           ASSETS_DIR = config.packages.frontend;
