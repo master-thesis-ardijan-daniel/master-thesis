@@ -18,24 +18,64 @@ async fn main() {
         .unwrap();
 }
 
-enum Node<T> {
-    Leaf(LeafNode<T>),
-    Parent(ParentNode<T>),
-}
+// enum NodeType<T> {
+// Leaf,
+// Parent(Vec<Node<T>>),
+// }
 
 struct Coordinates {
     lat: f32,
     lon: f32,
 }
 
-struct LeafNode<T> {
-    bounds: Bounds,
+// struct LeafNode<T> {
+//     bounds: Bounds,
+//     value: T,
+// }
+
+struct Node<T> {
+    children: Option<Vec<Node<T>>>,
     value: T,
+    bounds: Bounds,
 }
 
-struct ParentNode<T> {
-    bounds: Bounds,
-    children: Vec<Node<T>>,
+// impl<T> LeafNode<T> {}
+
+// struct ParentNode<T> {
+//     value: T,
+//     bounds: Bounds,
+//     children: Vec<Node<T>>,
+// }
+
+impl<T> Node<T> {
+    fn new_parent_from_children<F>(nodes: Vec<Node<T>>) -> Self
+    where
+        F: Dataset<T>,
+    {
+        let mut bounds = Bounds {
+            north_west: Coordinates {
+                lat: f32::MIN,
+                lon: f32::MAX,
+            },
+            south_east: Coordinates {
+                lat: f32::MAX,
+                lon: f32::MIN,
+            },
+        };
+
+        for node in &nodes {
+            bounds.north_west.lat = bounds.north_west.lat.max(node.bounds.north_west.lat);
+            bounds.north_west.lon = bounds.north_west.lon.min(node.bounds.north_west.lon);
+            bounds.south_east.lat = bounds.south_east.lat.min(node.bounds.south_east.lat);
+            bounds.south_east.lon = bounds.south_east.lon.max(node.bounds.south_east.lon);
+        }
+
+        Self {
+            value: F::aggregate(nodes.iter().map(|x| &x.value).collect()),
+            bounds,
+            children: Some(nodes),
+        }
+    }
 }
 
 struct GeoTree<T> {
@@ -47,31 +87,81 @@ struct Bounds {
     south_east: Coordinates,
 }
 
-impl<T> GeoTree<T>
-where
-    T: Dataset<T>,
-{
-    fn create(input_data: Vec<Vec<T>>, bounds: Bounds) -> Self {
-        let root = ParentNode {
-            bounds,
-            children: Vec::<Node<T>>::new(),
-        };
-
+impl<T> GeoTree<T> {
+    fn create<D>(input_data: Vec<Vec<T>>, bounds: Bounds) -> Self
+    where
+        D: Dataset<T>,
+    {
         // assert_eq!(T::MASK_DIM. % 4, 0);
         //
         //
+        //
+        //
+        //
+        let lat_step =
+            (bounds.north_west.lat - bounds.south_east.lat).abs() / input_data.len() as f32; // Check this
+        let lon_step =
+            (bounds.north_west.lon - bounds.south_east.lon).abs() / input_data[0].len() as f32;
+
+        let leaf_nodes: Vec<Vec<Node<T>>> = input_data
+            .iter()
+            .enumerate()
+            .map(|(y, y_val)| {
+                y_val
+                    .iter()
+                    .enumerate()
+                    .map(|(x, x_val)| {
+                        let bounds = Bounds {
+                            north_west: Coordinates {
+                                lat: bounds.north_west.lat - lat_step * (y as f32),
+                                lon: bounds.north_west.lon + lon_step * (x as f32),
+                            },
+                            south_east: Coordinates {
+                                lat: bounds.north_west.lat - lat_step * ((y + 1) as f32),
+                                lon: bounds.north_west.lon + lon_step * ((x + 1) as f32),
+                            },
+                        };
+
+                        Node {
+                            children: None,
+                            value: *x_val,
+                            bounds,
+                        }
+                    })
+                    .collect::<Vec<Node<T>>>()
+            })
+            .collect();
 
         let mut s = vec![];
 
-        for y in 0..input_data.len() / T::MASK_DIM.1 {
-            let y = y * T::MASK_DIM.1;
-            let y_mask = input_data.safe_slice(y..y + T::MASK_DIM.1);
-            for x in 0..input_data[y].len() / T::MASK_DIM.0 {}
+        for y in 0..leaf_nodes.len() / D::MASK_DIM.1 {
+            let y = y * D::MASK_DIM.1;
+
+            let Some(y_slice) = leaf_nodes.safe_slice(y..y + D::MASK_DIM.1) else {
+                break;
+            };
+
+            for x in 0..y_slice[0].len() / D::MASK_DIM.0 {
+                let x = x * D::MASK_DIM.0;
+
+                let mut children = vec![];
+                for y in 0..D::MASK_DIM.1 {
+                    if let Some(v) = y_slice[y].safe_slice(x..x + D::MASK_DIM.0) {
+                        // let values_to_extend = v.iter().flatten().collect::<Vec<T>>();
+                        children.extend(v);
+                    };
+                }
+
+                let parent = Node::new_parent_from_children::<D>(children);
+            }
         }
 
         todo!()
     }
 }
+
+// fn convolve(data: Vec<Vec<_>>, kernel: (usize,usize), stride:usize)->Vec<_>{
+// }
 
 // impl Dataset<f32> for f32 {
 //     fn aggregate(data: Vec<Self>) -> Self {
@@ -82,32 +172,31 @@ where
 // }
 
 trait SliceExt<T> {
-    fn safe_slice(&self, range: Range<usize>) -> &[T];
+    fn safe_slice(&self, range: Range<usize>) -> Option<&[T]>;
 }
 
 impl<T> SliceExt<T> for Vec<T> {
-    fn safe_slice(&self, range: Range<usize>) -> &[T] {
+    fn safe_slice(&self, range: Range<usize>) -> Option<&[T]> {
         let start = range.start;
         let mut end = range.end;
 
         loop {
             if let Some(slice) = self.get(start..end) {
-                return slice;
+                return Some(slice);
             }
 
             end -= 1;
 
             if start == end {
-                return &[];
+                return None;
             }
         }
     }
 }
 
 trait Dataset<T> {
-    fn aggregate(data: Vec<T>) -> T;
+    fn aggregate(data: Vec<&T>) -> T;
 
-    /// Value must be a power of 4.
     const MASK_DIM: (usize, usize);
     const STRIDE: usize;
 }
