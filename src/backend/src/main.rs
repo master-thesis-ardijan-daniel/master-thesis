@@ -132,6 +132,23 @@ impl<T> GeoTree<T> {
             })
             .collect();
 
+        let mut levels = vec![leaf_nodes];
+
+        while levels.last().unwrap().len() > 1 {
+            let parents: Vec<Vec<Node<T>>> = levels.last();
+            for y in (0..parents.len()).step_by(D::MASK_DIM.1) {
+                for x in (0..parents[0].len()).step_by(D::MASK_DIM.0) {
+                    for dy in 0..D::MASK_DIM.1 {
+                        for dx in 0..D::MASK_DIM.0 {
+                            let x = dx + x;
+                            let y = dy + y;
+                        }
+                    }
+                }
+            }
+        }
+        todo!()
+
         // let mut node = Vec::new();
 
         // for y in 0..leaf_nodes.len() / D::MASK_DIM.1 {
@@ -156,38 +173,38 @@ impl<T> GeoTree<T> {
         //
         //
 
-        let parents = convolve::<_, D>(leaf_nodes);
+        // let parents = convolve::<_, D>(leaf_nodes);
 
-        let f = |nodes: Vec<Node<T>>| {
-            if nodes.len() == 1 {
-                return nodes;
-            }
+        // let f = |nodes: Vec<Node<T>>| {
+        //     if nodes.len() == 1 {
+        //         return nodes;
+        //     }
 
-            Node::new_parent_from_children(nodes)
-        };
+        //     Node::new_parent_from_children(nodes)
+        // };
 
-        let g = |nodes: Vec<Node<T>>| -> Node<T> {
-            let mut children = Vec::new();
+        // let g = |nodes: Vec<Node<T>>| -> Node<T> {
+        //     let mut children = Vec::new();
 
-            for y in 0..10 {
-                for x in 0..10 {
-                    let child = g(nodes[x]);
-                    children.push(child);
-                }
-            }
+        //     for y in 0..10 {
+        //         for x in 0..10 {
+        //             let child = g(nodes[x]);
+        //             children.push(child);
+        //         }
+        //     }
 
-            Node::new_parent_from_children(children)
-        };
+        //     Node::new_parent_from_children(children)
+        // };
 
-        loop {
-            let parents = convolve::<_, D>(nodes);
+        // loop {
+        //     let parents = convolve::<_, D>(nodes);
 
-            if parents.len() == 1 {
-                break;
-            }
-        }
+        //     if parents.len() == 1 {
+        //         break;
+        //     }
+        // }
 
-        todo!()
+        // todo!()
     }
 }
 
