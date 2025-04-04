@@ -103,14 +103,14 @@ impl<T> GeoTree<T> {
         let lon_step =
             (bounds.north_west.lon - bounds.south_east.lon).abs() / input_data[0].len() as f32;
 
-        let leaf_nodes: Vec<Vec<Node<T>>> = input_data
-            .iter()
+        let mut leaf_nodes: Vec<Vec<Node<T>>> = input_data
+            .into_iter()
             .enumerate()
             .map(|(y, y_val)| {
                 y_val
-                    .iter()
+                    .into_iter()
                     .enumerate()
-                    .map(|(x, x_val)| {
+                    .map(|(x, value)| {
                         let bounds = Bounds {
                             north_west: Coordinates {
                                 lat: bounds.north_west.lat - lat_step * (y as f32),
@@ -124,7 +124,7 @@ impl<T> GeoTree<T> {
 
                         Node {
                             children: None,
-                            value: *x_val,
+                            value,
                             bounds,
                         }
                     })
@@ -132,27 +132,58 @@ impl<T> GeoTree<T> {
             })
             .collect();
 
-        let mut s = vec![];
+        // let mut node = Vec::new();
 
-        for y in 0..leaf_nodes.len() / D::MASK_DIM.1 {
-            let y = y * D::MASK_DIM.1;
+        // for y in 0..leaf_nodes.len() / D::MASK_DIM.1 {
+        //     let y = y * D::MASK_DIM.1;
 
-            let Some(y_slice) = leaf_nodes.safe_slice(y..y + D::MASK_DIM.1) else {
-                break;
-            };
+        //     let mut y_slice = leaf_nodes.drain(y..y + D::MASK_DIM.1).collect::<Vec<_>>();
 
-            for x in 0..y_slice[0].len() / D::MASK_DIM.0 {
-                let x = x * D::MASK_DIM.0;
+        //     for x in 0..y_slice[0].len() / D::MASK_DIM.0 {
+        //         let x = x * D::MASK_DIM.0;
 
-                let mut children = vec![];
-                for y in 0..D::MASK_DIM.1 {
-                    if let Some(v) = y_slice[y].safe_slice(x..x + D::MASK_DIM.0) {
-                        // let values_to_extend = v.iter().flatten().collect::<Vec<T>>();
-                        children.extend(v);
-                    };
+        //         let mut children = vec![];
+
+        //         for y in 0..D::MASK_DIM.1 {
+        //             let v = y_slice[y].drain(x..x + D::MASK_DIM.0);
+        //             children.extend(v);
+        //         }
+
+        //         let parent = Node::new_parent_from_children::<D>(children);
+        //         node.push(parent);
+        //     }
+        // }
+        //
+        //
+
+        let parents = convolve::<_, D>(leaf_nodes);
+
+        let f = |nodes: Vec<Node<T>>| {
+            if nodes.len() == 1 {
+                return nodes;
+            }
+
+            Node::new_parent_from_children(nodes)
+        };
+
+        let g = |nodes: Vec<Node<T>>| -> Node<T> {
+            let mut children = Vec::new();
+
+            for y in 0..10 {
+                for x in 0..10 {
+                    let child = g(nodes[x]);
+                    children.push(child);
                 }
+            }
 
-                let parent = Node::new_parent_from_children::<D>(children);
+            Node::new_parent_from_children(children)
+        };
+
+        loop {
+            let parents = convolve::<_, D>(nodes);
+
+            if parents.len() == 1 {
+                break;
             }
         }
 
@@ -160,8 +191,38 @@ impl<T> GeoTree<T> {
     }
 }
 
-// fn convolve(data: Vec<Vec<_>>, kernel: (usize,usize), stride:usize)->Vec<_>{
-// }
+fn convolve<T, D>(
+    mut data: Vec<Vec<Node<T>>>,
+    // kernel: (usize, usize),
+    // stride: usize,
+) -> Vec<Node<T>>
+where
+    D: Dataset<T>,
+{
+    let mut parents = Vec::new();
+
+    for y in 0..data.len() / D::MASK_DIM.1 {
+        let y = y * D::MASK_DIM.1;
+
+        let mut y_slice = data.drain(y..y + D::MASK_DIM.1).collect::<Vec<_>>();
+
+        for x in 0..y_slice[0].len() / D::MASK_DIM.0 {
+            let x = x * D::MASK_DIM.0;
+
+            let mut children = vec![];
+
+            for y in 0..D::MASK_DIM.1 {
+                let v = y_slice[y].drain(x..x + D::MASK_DIM.0);
+                children.extend(v);
+            }
+
+            let parent = Node::new_parent_from_children::<D>(children);
+            parents.push(parent);
+        }
+    }
+
+    parents
+}
 
 // impl Dataset<f32> for f32 {
 //     fn aggregate(data: Vec<Self>) -> Self {
