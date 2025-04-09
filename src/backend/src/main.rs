@@ -42,18 +42,14 @@ struct Tile<T> {
 #[derive(Clone)]
 struct TileNode<T> {
     bounds: Bounds,
-    children: Option<Vec<TileNode<T>>>,
+    children: Vec<Vec<TileNode<T>>>, //Should allways be smaller in dimensions than self.tile
+    tile: Vec<Vec<T>>,
     aggregate: T,
 }
 
 impl<T> TileNode<T> {
-    fn get_tile(&self) -> Vec<Vec<T>>> {
-        let children = self.children.unwrap();
-
-        children
-            .iter()
-            .map(|child| child.aggregate)
-            .collect()
+    fn get_tile(&self) -> &[Vec<T>] {
+        &self.tile
     }
 }
 
@@ -66,7 +62,7 @@ impl<T> TileNode<T> {
 // }
 
 impl<T> TileNode<T> {
-    fn new_parent_from_children<F>(nodes: Vec<TileNode<T>>) -> Self
+    fn new_parent_from_children<F>(nodes: Vec<Vec<TileNode<T>>>) -> Self
     where
         F: Dataset<T>,
     {
@@ -89,9 +85,10 @@ impl<T> TileNode<T> {
         }
 
         Self {
-            value: F::aggregate(nodes.iter().map(|x| &x.value).collect()),
+            aggregate: F::aggregate(nodes.iter().map(|x| &x.value).collect()),
             bounds,
-            children: Some(nodes),
+            children: nodes,
+            tile: F::convolute(nodes),)
         }
     }
 }
