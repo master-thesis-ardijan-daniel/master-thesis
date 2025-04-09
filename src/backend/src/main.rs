@@ -1,7 +1,7 @@
 use axum::Router;
 use std::{
     net::SocketAddr,
-    ops::{Index, Range},
+    ops::Range,
 };
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
@@ -23,7 +23,8 @@ async fn main() {
 // Parent(Vec<Node<T>>),
 // }
 
-struct Coordinates {
+#[derive(Copy, Clone)]
+struct Coordinate {
     lat: f32,
     lon: f32,
 }
@@ -32,11 +33,28 @@ struct Coordinates {
 //     bounds: Bounds,
 //     value: T,
 // }
+//
 
-struct Node<T> {
-    children: Option<Vec<Node<T>>>,
-    value: T,
+struct Tile<T> {
+    data: Vec<Vec<T>>,
+}
+
+#[derive(Clone)]
+struct TileNode<T> {
     bounds: Bounds,
+    children: Option<Vec<TileNode<T>>>,
+    aggregate: T,
+}
+
+impl<T> TileNode<T> {
+    fn get_tile(&self) -> Vec<Vec<T>>> {
+        let children = self.children.unwrap();
+
+        children
+            .iter()
+            .map(|child| child.aggregate)
+            .collect()
+    }
 }
 
 // impl<T> LeafNode<T> {}
@@ -47,17 +65,17 @@ struct Node<T> {
 //     children: Vec<Node<T>>,
 // }
 
-impl<T> Node<T> {
-    fn new_parent_from_children<F>(nodes: Vec<Node<T>>) -> Self
+impl<T> TileNode<T> {
+    fn new_parent_from_children<F>(nodes: Vec<TileNode<T>>) -> Self
     where
         F: Dataset<T>,
     {
         let mut bounds = Bounds {
-            north_west: Coordinates {
+            north_west: Coordinate {
                 lat: f32::MIN,
                 lon: f32::MAX,
             },
-            south_east: Coordinates {
+            south_east: Coordinate {
                 lat: f32::MAX,
                 lon: f32::MIN,
             },
@@ -79,15 +97,64 @@ impl<T> Node<T> {
 }
 
 struct GeoTree<T> {
-    root: Node<T>,
+    root: TileNode<T>,
+    depth: usize,
+    // indices: Vec<LayerIndex>,
 }
 
-struct Bounds {
-    north_west: Coordinates,
-    south_east: Coordinates,
+struct Tile<T> {
+    bounds: Bounds,
+    values: Vec<Vec<T>>,
 }
 
 impl<T> GeoTree<T> {
+    fn get_tile(&self, depth: usize, point: Coordinate, size) -> Option<Tile<T>> {
+        let mut target = &self.root;
+        let mut current_depth = self.depth;
+
+        for node in target.children.as_ref().unwrap_or(&Vec::new()) {
+            if node.bounds.contains(&point) && current_depth > depth {
+                target = node;
+                current_depth -= 1;
+
+                break;
+            }
+        }
+
+        
+
+        todo!()
+    }
+}
+
+// struct LayerIndex {
+//     level: usize,
+//     nodes: Vec<NodeRef>,
+// }
+
+// struct NodeRef {
+//     pointer: usize,
+// }
+
+#[derive(Copy, Clone)]
+struct Bounds {
+    north_west: Coordinate,
+    south_east: Coordinate,
+}
+
+impl Bounds {
+    pub fn contains(&self, coordinate: Coordinate) -> bool {
+        let lat = self.north_west.lat >= coordinate.lat && coordinate.lat >= self.south_east.lat;
+        let lon = self.north_west.lon <= coordinate.lon && coordinate.lon <= self.south_east.lon;
+
+        return lat && lon;
+    }
+}
+
+impl<T> GeoTree<T>
+where
+    T: Copy + Clone,
+{
     fn create<D>(input_data: Vec<Vec<T>>, bounds: Bounds) -> Self
     where
         D: Dataset<T>,
@@ -103,7 +170,7 @@ impl<T> GeoTree<T> {
         let lon_step =
             (bounds.north_west.lon - bounds.south_east.lon).abs() / input_data[0].len() as f32;
 
-        let mut leaf_nodes: Vec<Vec<Node<T>>> = input_data
+        let mut leaf_nodes: Vec<Vec<TileNode<T>>> = input_data
             .into_iter()
             .enumerate()
             .map(|(y, y_val)| {
@@ -112,42 +179,62 @@ impl<T> GeoTree<T> {
                     .enumerate()
                     .map(|(x, value)| {
                         let bounds = Bounds {
-                            north_west: Coordinates {
+                            north_west: Coordinate {
                                 lat: bounds.north_west.lat - lat_step * (y as f32),
                                 lon: bounds.north_west.lon + lon_step * (x as f32),
                             },
-                            south_east: Coordinates {
+                            south_east: Coordinate {
                                 lat: bounds.north_west.lat - lat_step * ((y + 1) as f32),
                                 lon: bounds.north_west.lon + lon_step * ((x + 1) as f32),
                             },
                         };
 
-                        Node {
+                        TileNode {
                             children: None,
                             value,
                             bounds,
                         }
                     })
-                    .collect::<Vec<Node<T>>>()
+                    .collect::<Vec<TileNode<T>>>()
             })
             .collect();
 
-        let mut levels = vec![leaf_nodes];
+        // let mut levels = vec![leaf_nodes];
 
-        while levels.last().unwrap().len() > 1 {
-            let parents: Vec<Vec<Node<T>>> = levels.last();
-            for y in (0..parents.len()).step_by(D::MASK_DIM.1) {
-                for x in (0..parents[0].len()).step_by(D::MASK_DIM.0) {
+        let mut previous_layer = leaf_nodes;
+        let mut current_layer = Vec::new();
+
+        while current_layer.len() > 1 {
+            for y in (0..previous_layer.len()).step_by(D::MASK_DIM.1) {
+                let mut row = Vec::new();
+
+                for x in (0..previous_layer[0].len()).step_by(D::MASK_DIM.0) {
+                    let mut nodes = Vec::new();
                     for dy in 0..D::MASK_DIM.1 {
                         for dx in 0..D::MASK_DIM.0 {
                             let x = dx + x;
                             let y = dy + y;
+
+                            let node = previous_layer[y][x];
+                            nodes.push(node);
                         }
                     }
+
+                    let node = D::aggregate(nodes);
+
+                    row.push(node);
                 }
+
+                current_layer.push(row);
             }
+
+            previous_layer = current_layer;
+            current_layer = Vec::new();
         }
-        todo!()
+
+        let Some(root) = current_layer.into_iter().flatten().next() else {
+            panic!("No root node at top-level");
+        };
 
         // let mut node = Vec::new();
 
@@ -209,10 +296,10 @@ impl<T> GeoTree<T> {
 }
 
 fn convolve<T, D>(
-    mut data: Vec<Vec<Node<T>>>,
+    mut data: Vec<Vec<TileNode<T>>>,
     // kernel: (usize, usize),
     // stride: usize,
-) -> Vec<Node<T>>
+) -> Vec<TileNode<T>>
 where
     D: Dataset<T>,
 {
@@ -233,7 +320,7 @@ where
                 children.extend(v);
             }
 
-            let parent = Node::new_parent_from_children::<D>(children);
+            let parent = TileNode::new_parent_from_children::<D>(children);
             parents.push(parent);
         }
     }
@@ -273,8 +360,9 @@ impl<T> SliceExt<T> for Vec<T> {
 }
 
 trait Dataset<T> {
-    fn aggregate(data: Vec<&T>) -> T;
+    fn aggregate(data: Vec<TileNode<T>>) -> TileNode<T>;
 
     const MASK_DIM: (usize, usize);
     const STRIDE: usize;
+    const TILE_SIZE: usize;
 }
