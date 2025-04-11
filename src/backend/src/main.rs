@@ -72,13 +72,25 @@ fn main() {
     let mut x = 0;
     let mut y = 0;
     for tile in tree.root.children.iter().flatten() {
-        let name = format!("{}_{}.png", x, y);
+        let name = format!("tiles/{}_{}.png", x, y);
 
         create_image(&name, &tile.tile);
 
         x += 1;
         y += 1;
     }
+
+    let mut x = 0;
+    let mut y = 0;
+    for tile in tree.root.children[0][0].children.iter().flatten() {
+        let name = format!("tiles_child/{}_{}.png", x, y);
+
+        create_image(&name, &tile.tile);
+
+        x += 1;
+        y += 1;
+    }
+    println!("total depth: {}", tree.depth);
 
     create_image("root.png", &tree.root.tile);
 

@@ -62,7 +62,7 @@ impl<T> TileNode<T> {
 
 pub struct GeoTree<T> {
     pub root: TileNode<T>,
-    depth: usize,
+    pub depth: usize,
     // indices: Vec<LayerIndex>,
 }
 
@@ -178,15 +178,15 @@ where
 
         loop {
             depth += 1;
-            for y in (0..previous_layer.len()).step_by(D::TILE_SIZE) {
+            for y in (0..previous_layer.len()).step_by(2) {
                 let mut row = Vec::new();
 
-                for x in (0..previous_layer[0].len()).step_by(D::TILE_SIZE) {
+                for x in (0..previous_layer[0].len()).step_by(2) {
                     let mut nodes = Vec::new();
-                    'y: for dy in 0..D::TILE_SIZE {
+                    'y: for dy in 0..2 {
                         let mut node_row = Vec::new();
 
-                        'x: for dx in 0..D::TILE_SIZE {
+                        'x: for dx in 0..2 {
                             let x = dx + x;
                             let y = dy + y;
 
@@ -212,7 +212,8 @@ where
                 current_layer.push(row);
             }
 
-            break;
+            // break;
+            dbg!(current_layer.len());
             if current_layer.len() <= 1 {
                 break;
             }
@@ -348,33 +349,63 @@ pub fn stitch_tiles<T>(tiles: Vec<Vec<TileNode<T>>>) -> Vec<Vec<T>>
 where
     T: Copy + Default,
 {
-    let tile_size = tiles[0][0].tile.len();
+    let mut buffer = vec![];
 
-    let mut buffer = vec![vec![T::default(); tiles[0].len() * tile_size]; tiles.len() * tile_size];
-
-    for y in 0..tiles.len() {
-        for x in 0..tiles[0].len() {
-            let tile = &tiles[y][x].tile;
-
-            for j in 0..tile.len() {
-                for i in 0..tile[j].len() {
-                    let x = x * tile_size + i;
-                    let y = y * tile_size + j;
-
-                    if x >= tiles[0].len() * tile_size {
-                        println!("(buffer) y: {}", buffer.len());
-                        println!("(buffer) x: {}", buffer[0].len());
-                        println!("(tile) y: {}", tile.len());
-                        println!("(tile) x: {}", tile[0].len());
-                        println!("(input) y: {}", tiles.len());
-                        println!("(input) x: {}", tiles[0].len());
-                    }
-
-                    buffer[y][x] = tile[j][i];
-                }
-            }
+    for row in tiles {
+        let mut tile_main = row[0].tile.clone();
+        for tile_ext in 1..row.len() {
+            tile_main
+                .iter_mut()
+                .zip(row[tile_ext].tile.iter())
+                .into_iter()
+                .for_each(|(row1, row2)| {
+                    row1.extend(row2);
+                });
         }
+
+        buffer.append(&mut tile_main);
     }
+
+    // for y in 0..tiles.len() {
+    //     for x in 0..tiles[y].len() {
+    //         let tile = &tiles[y][x].tile; // it is a trap
+
+    //         println!("(buffer) y: {}", buffer.len());
+    //         println!("(buffer) x: {}", buffer[0].len());
+    //         println!("(tile) y: {}", tile.len());
+    //         println!("(tile) x: {}", tile[0].len());
+    //         println!("(input) y: {}", tiles.len());
+    //         println!("(input) x: {}", tiles[0].len());
+
+    //         tile.into_iter().enumerate().for_each(|t_y, row| {
+    //             row.into_iter().enumerate().for_each(|t_x, value| {
+    //                 let x = t_x + x * tile_size;
+    //                 kkk
+    //             })
+    //         });
+    //         for j in 0..tile.len() {
+    //             for i in 0..tile[j].len() {
+    //                 let x_i = x * tile_size + i;
+    //                 let y_i = y * tile_size + j;
+    //                 if x_i >= tiles[0].len() * tile_size {
+    //                     dbg!(tile_size);
+    //                     dbg!(i);
+    //                     dbg!(tile.len());
+    //                     dbg!(tile[j].len());
+
+    //                     dbg!(x);
+    //                     dbg!(y);
+    //                     dbg!(x_i);
+    //                     dbg!(y_i);
+    //                     dbg!(buffer.len());
+    //                     dbg!(buffer[0].len());
+    //                 }
+
+    //                 buffer[y_i][x_i] = tile[j][i];
+    //             }
+    //         }
+    //     }
+    // }
 
     buffer
 }
