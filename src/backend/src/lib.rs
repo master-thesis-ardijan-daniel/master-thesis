@@ -177,6 +177,8 @@ where
         let mut depth = 0;
 
         loop {
+            dbg!(previous_layer.len());
+            dbg!(previous_layer[0].len());
             depth += 1;
             for y in (0..previous_layer.len()).step_by(2) {
                 let mut row = Vec::new();
@@ -213,7 +215,7 @@ where
             }
 
             // break;
-            dbg!(current_layer.len());
+            // dbg!(current_layer.len());
             if current_layer.len() <= 1 {
                 break;
             }
