@@ -136,7 +136,7 @@ where
     where
         D: Dataset<T>,
     {
-        let leaf_nodes = split_into_tiles::<D, _>(input_data);
+        let leaf_nodes = extract_blocks(&input_data, D::TILE_SIZE, D::TILE_SIZE);
 
         let lat_step =
             (bounds.north_west.lat - bounds.south_east.lat).abs() / leaf_nodes.len() as f32; // Check this
@@ -173,55 +173,28 @@ where
             .collect::<Vec<_>>();
 
         let mut previous_layer = leaf_nodes;
-        let mut current_layer = Vec::new();
+        let mut current_layer: Vec<_>;
         let mut depth = 0;
 
         loop {
             dbg!(previous_layer.len());
             dbg!(previous_layer[0].len());
             depth += 1;
-            for y in (0..previous_layer.len()).step_by(2) {
-                let mut row = Vec::new();
 
-                for x in (0..previous_layer[0].len()).step_by(2) {
-                    let mut nodes = Vec::new();
-                    'y: for dy in 0..2 {
-                        let mut node_row = Vec::new();
+            current_layer = extract_blocks(&previous_layer, D::TILE_SIZE, D::TILE_SIZE)
+                .into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .map(|tile| TileNode::new_parent_from_children::<D>(tile))
+                        .collect()
+                })
+                .collect();
 
-                        'x: for dx in 0..2 {
-                            let x = dx + x;
-                            let y = dy + y;
-
-                            if x >= previous_layer[0].len() {
-                                break 'x;
-                            }
-
-                            if y >= previous_layer.len() {
-                                break 'y;
-                            }
-
-                            let node = previous_layer[y][x].clone();
-                            node_row.push(node);
-                        }
-                        nodes.push(node_row);
-                    }
-
-                    let node = TileNode::new_parent_from_children::<D>(nodes);
-
-                    row.push(node);
-                }
-
-                current_layer.push(row);
-            }
-
-            // break;
-            // dbg!(current_layer.len());
             if current_layer.len() <= 1 {
                 break;
             }
 
             previous_layer = current_layer;
-            current_layer = Vec::new();
         }
 
         let root = current_layer.into_iter().flatten().next().unwrap();
@@ -234,51 +207,8 @@ pub trait Dataset<T> {
     fn aggregate(data: Vec<T>) -> T;
     fn convolute(data: Vec<Vec<TileNode<T>>>) -> Vec<Vec<T>>;
 
-    const MASK_DIM: (usize, usize);
     const STRIDE: usize;
     const TILE_SIZE: usize;
-}
-
-fn split_into_tiles<D, T>(data: Vec<Vec<T>>) -> Vec<Vec<Tile<T>>>
-where
-    D: Dataset<T>,
-    T: Copy,
-{
-    let mut out = Vec::new();
-
-    for y in (0..data.len()).step_by(D::TILE_SIZE) {
-        let mut row = Vec::new();
-
-        for x in (0..data[0].len()).step_by(D::TILE_SIZE) {
-            let mut tile = Vec::new();
-            'y: for dy in 0..D::TILE_SIZE {
-                let mut tile_row = Vec::new();
-
-                'x: for dx in 0..D::TILE_SIZE {
-                    let x = dx + x;
-                    let y = dy + y;
-
-                    if x >= data[0].len() {
-                        break 'x;
-                    }
-
-                    if y >= data.len() {
-                        break 'y;
-                    }
-
-                    let value = data[y][x];
-                    tile_row.push(value);
-                }
-                tile.push(tile_row);
-            }
-
-            row.push(tile);
-        }
-
-        out.push(row);
-    }
-
-    out
 }
 
 pub struct EarthTextures;
@@ -293,54 +223,33 @@ impl Dataset<Pixel> for EarthTextures {
     fn convolute(data: Vec<Vec<TileNode<Pixel>>>) -> Vec<Vec<Pixel>> {
         let full_image = stitch_tiles(data);
 
-        let mut out = Vec::new();
+        extract_blocks(&full_image, full_image.len(), full_image[0].len())
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|tile| {
+                        let mut kernel_value = [0_usize; 4];
+                        let mut n_values = 0;
+                        tile.iter().flatten().for_each(|pixel| {
+                            n_values += 1;
+                            kernel_value[0] += pixel[0] as usize;
+                            kernel_value[1] += pixel[1] as usize;
+                            kernel_value[2] += pixel[2] as usize;
+                        });
 
-        for y in (0..full_image.len()).step_by(Self::MASK_DIM.1) {
-            let mut row = Vec::new();
-            for x in (0..full_image[0].len()).step_by(Self::MASK_DIM.0) {
-                let mut kernel_value = [0_usize; 4];
-
-                'y: for dy in 0..Self::MASK_DIM.1 {
-                    'x: for dx in 0..Self::MASK_DIM.0 {
-                        let x = dx + x;
-                        let y = dy + y;
-
-                        if y >= full_image.len() {
-                            break 'y;
-                        }
-
-                        if x >= full_image[y].len() {
-                            break 'x;
-                        }
-
-                        let value = full_image[y][x];
-
-                        kernel_value[0] += value[0] as usize;
-                        kernel_value[1] += value[1] as usize;
-                        kernel_value[2] += value[2] as usize;
-                    }
-                }
-
-                kernel_value[0] /= Self::MASK_DIM.1 * Self::MASK_DIM.0;
-                kernel_value[1] /= Self::MASK_DIM.1 * Self::MASK_DIM.0;
-                kernel_value[2] /= Self::MASK_DIM.1 * Self::MASK_DIM.0;
-
-                let kernel_value = [
-                    kernel_value[0] as u8,
-                    kernel_value[1] as u8,
-                    kernel_value[2] as u8,
-                ];
-
-                row.push(kernel_value);
-            }
-
-            out.push(row);
-        }
-
-        out
+                        kernel_value[0] /= n_values;
+                        kernel_value[1] /= n_values;
+                        kernel_value[2] /= n_values;
+                        [
+                            kernel_value[0] as u8,
+                            kernel_value[1] as u8,
+                            kernel_value[2] as u8,
+                        ]
+                    })
+                    .collect()
+            })
+            .collect()
     }
-
-    const MASK_DIM: (usize, usize) = (2, 2);
 
     const STRIDE: usize = 0;
 
@@ -410,4 +319,30 @@ where
     // }
 
     buffer
+}
+fn extract_blocks<T: Clone>(
+    matrix: &[Vec<T>],
+    block_height: usize,
+    block_width: usize,
+) -> Vec<Vec<Vec<Vec<T>>>> {
+    matrix
+        .chunks(block_height)
+        .map(|row_chunk| {
+            (0..row_chunk[0].len())
+                .step_by(block_width)
+                .map(|col_start| {
+                    row_chunk
+                        .iter()
+                        .map(|row| {
+                            row.iter()
+                                .skip(col_start)
+                                .take(block_width)
+                                .cloned()
+                                .collect::<Vec<T>>()
+                        })
+                        .collect::<Vec<Vec<T>>>()
+                })
+                .collect::<Vec<Vec<Vec<T>>>>()
+        })
+        .collect()
 }

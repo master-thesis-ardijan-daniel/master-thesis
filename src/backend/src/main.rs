@@ -1,5 +1,6 @@
 use axum::Router;
 use image::Rgb;
+use itertools::multizip;
 use std::{net::SocketAddr, ops::Deref};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
@@ -69,21 +70,24 @@ fn main() {
         image.save(name).unwrap();
     }
 
+    // let mut x = 0;
+    // let mut y = 0;
+    // for tile in tree.root.children.iter().flatten() {
+    //     let name = format!("tiles/{}_{}.png", x, y);
+
+    //     create_image(&name, &tile.tile);
+
+    //     x += 1;
+    //     y += 1;
+    // }
+
     let mut x = 0;
     let mut y = 0;
-    for tile in tree.root.children.iter().flatten() {
-        let name = format!("tiles/{}_{}.png", x, y);
-
-        create_image(&name, &tile.tile);
-
-        x += 1;
-        y += 1;
-    }
-
-    let mut x = 0;
-    let mut y = 0;
-    for tile in tree.root.children[0][1].children.iter().flatten() {
-        let name = format!("tiles_child/{}_{}.png", x, y);
+    dbg!(tree.root.children.len());
+    dbg!(tree.root.children[0].len());
+    dbg!(tree.root.children[0][0].children.len());
+    for tile in tree.root.children[0][0].children.iter().flatten() {
+        let name = format!("./tiles_child/{}_{}.png", x, y);
 
         create_image(&name, &tile.tile);
 
@@ -97,14 +101,4 @@ fn main() {
     let image = stitch_tiles(tree.root.children.clone());
 
     create_image("stitched_root.png", &image);
-}
-
-fn extract_blocks<T: Clone>(
-    matrix: &[Vec<T>],
-    block_height: usize,
-    block_width: usize,
-) -> Vec<Vec<Vec<Vec<T>>>> {
-    matrix
-        .chunks(block_height)
-        .map(|rows| rows.iter_mut().map(|x| x.chunks(block_width)))
 }
