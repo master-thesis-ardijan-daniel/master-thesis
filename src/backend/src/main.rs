@@ -48,6 +48,28 @@ fn main() {
 
     let tree = GeoTree::create::<EarthTextures>(data, bounds);
 
+    {
+        let query = Bounds {
+            north_west: Coordinate {
+                lat: 90.,
+                lon: -180.,
+            },
+            south_east: Coordinate {
+                lat: 85.,
+                lon: -175.,
+            },
+        };
+
+        // assert!(query.intersects(&bounds));
+        // assert!(bounds.intersects(&query));
+
+        println!("Retrieving tiles");
+        dbg!(tree.root.bounds);
+        dbg!(tree.get_tiles(query, 3));
+    }
+
+    return;
+
     // let tile = tree
     //     .get_tile(0, &Coordinate { lat: 0., lon: 0. })
     //     .expect("did not find tile at 0, 0");

@@ -66,34 +66,6 @@ pub struct GeoTree<T> {
     // indices: Vec<LayerIndex>,
 }
 
-impl<T> GeoTree<T> {
-    pub fn get_tile(&self, depth: usize, point: &Coordinate) -> Option<&Tile<T>> {
-        let mut target = &self.root;
-        let mut current_depth = self.depth;
-
-        if current_depth == depth {
-            return Some(&self.root.tile);
-        }
-
-        println!("Total depth: {}", self.depth);
-
-        for node in target.children.iter().flatten() {
-            dbg!(node.bounds);
-            if node.bounds.contains(&point) {
-                target = node;
-                current_depth -= 1;
-
-                println!("Going down to depth: {}", current_depth);
-                if current_depth == depth {
-                    return Some(&target.tile);
-                }
-            }
-        }
-
-        None
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 pub struct Bounds {
     pub north_west: Coordinate,
@@ -107,13 +79,29 @@ impl Bounds {
 
         return lat && lon;
     }
+
+    pub fn intersects(&self, area: &Bounds) -> bool {
+        if dbg!(self.north_west.lon > area.south_east.lon)
+            || dbg!(area.south_east.lat > self.north_west.lat)
+        {
+            return false;
+        }
+
+        if dbg!(self.south_east.lon < area.north_west.lon)
+            || dbg!(area.north_west.lat < self.south_east.lat)
+        {
+            return false;
+        }
+
+        true
+    }
 }
 
 mod tests {
     use crate::{Bounds, Coordinate};
 
     #[test]
-    fn test() {
+    fn contains() {
         let bounds = Bounds {
             north_west: Coordinate { lon: -1., lat: 1. },
             south_east: Coordinate { lon: 1., lat: -1. },
@@ -125,6 +113,67 @@ mod tests {
         assert!(!bounds.contains(&Coordinate { lat: 2., lon: 2. }));
 
         assert!(bounds.contains(&Coordinate { lat: 0., lon: 0. }));
+    }
+
+    #[test]
+    fn intersects() {
+        let bounds = Bounds {
+            north_west: Coordinate { lon: -1., lat: 1. },
+            south_east: Coordinate { lon: 1., lat: -1. },
+        };
+
+        assert!(bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: 0., lon: 0. },
+            south_east: Coordinate { lat: 0., lon: 0. },
+        }));
+
+        assert!(!bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: 3., lon: 3. },
+            south_east: Coordinate { lat: 4., lon: 4. },
+        }));
+
+        assert!(!bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: 3., lon: -3. },
+            south_east: Coordinate { lat: 4., lon: -4. },
+        }));
+
+        assert!(!bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: -3., lon: -3. },
+            south_east: Coordinate { lat: -4., lon: -4. },
+        }));
+
+        assert!(!bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: -3., lon: 3. },
+            south_east: Coordinate { lat: -4., lon: 4. },
+        }));
+
+        assert!(bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: 0., lon: 0. },
+            south_east: Coordinate { lat: -4., lon: 4. },
+        }));
+
+        assert!(bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: 0., lon: -4. },
+            south_east: Coordinate { lat: -4., lon: 0. },
+        }));
+
+        assert!(bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: 4., lon: -4. },
+            south_east: Coordinate { lat: 0., lon: 0. },
+        }));
+
+        assert!(bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: 4., lon: 0. },
+            south_east: Coordinate { lat: 0., lon: 4. },
+        }));
+
+        assert!(bounds.intersects(&Bounds {
+            north_west: Coordinate { lat: -1., lon: -1. },
+            south_east: Coordinate {
+                lat: 0.5,
+                lon: -0.5,
+            },
+        }));
     }
 }
 
@@ -151,6 +200,57 @@ where
             root,
             depth: depth as usize,
         }
+    }
+
+    pub fn get_tile(&self, point: Coordinate, level: u32) -> Option<&Tile<T>> {
+        let mut current_level = 0;
+        let mut target = &self.root;
+
+        while current_level <= level {
+            for node in target.children.iter().flatten() {
+                if node.bounds.contains(&point) {
+                    target = node;
+                    current_level += 1;
+
+                    if current_level == level {
+                        return Some(&target.tile);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn get_tiles(&self, area: Bounds, level: u32) -> Vec<&Tile<T>> {
+        fn f<T>(
+            level: u32,
+            current_level: u32,
+            node: &TileNode<T>,
+            area: Bounds,
+        ) -> Option<Vec<&Tile<T>>> {
+            dbg!(current_level);
+
+            if dbg!(node.bounds.intersects(&area)) {
+                if current_level == level {
+                    dbg!(node.bounds, current_level);
+                    return Some(vec![&node.tile]);
+                }
+
+                return Some(
+                    node.children
+                        .iter()
+                        .flatten()
+                        .flat_map(|c| f(level, current_level + 1, c, area))
+                        .flatten()
+                        .collect(),
+                );
+            }
+
+            None
+        }
+
+        f(level, 0, &self.root, area).unwrap()
     }
 }
 
@@ -279,6 +379,7 @@ fn extract_blocks<T: Clone>(
     block_width: usize,
 ) -> Vec<Vec<Vec<Vec<T>>>> {
     if block_width <= 0 || block_height <= 0 {
+        panic!("{}, {}", block_width, block_height);
         return vec![];
     }
 
