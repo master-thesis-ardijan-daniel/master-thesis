@@ -70,16 +70,16 @@ fn main() {
         image.save(name).unwrap();
     }
 
-    // let mut x = 0;
-    // let mut y = 0;
-    // for tile in tree.root.children.iter().flatten() {
-    //     let name = format!("tiles/{}_{}.png", x, y);
+    let mut x = 0;
+    let mut y = 0;
+    for tile in tree.root.children.iter().flatten() {
+        let name = format!("tiles/{}_{}.png", x, y);
 
-    //     create_image(&name, &tile.tile);
+        create_image(&name, &tile.tile);
 
-    //     x += 1;
-    //     y += 1;
-    // }
+        x += 1;
+        y += 1;
+    }
 
     let mut x = 0;
     let mut y = 0;
