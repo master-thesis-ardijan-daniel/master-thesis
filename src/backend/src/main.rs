@@ -65,10 +65,17 @@ fn main() {
 
         println!("Retrieving tiles");
         dbg!(tree.root.bounds);
-        dbg!(tree.get_tiles(query, 3));
+        dbg!(tree.root.children.len());
+        dbg!(tree.root.children[0].len());
+        dbg!(tree.root.children[0][0].tile.len());
+        dbg!(tree.root.children[0][0].tile[0].len());
+        dbg!(tree.root.tile.len());
+        dbg!(tree.root.tile[0].len());
+        let result = tree.get_tiles(query, 2);
+        dbg!(result.len());
+        dbg!(result[0].len());
+        dbg!(result[0][0].len());
     }
-
-    return;
 
     // let tile = tree
     //     .get_tile(0, &Coordinate { lat: 0., lon: 0. })

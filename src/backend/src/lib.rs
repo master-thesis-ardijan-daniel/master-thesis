@@ -81,15 +81,11 @@ impl Bounds {
     }
 
     pub fn intersects(&self, area: &Bounds) -> bool {
-        if dbg!(self.north_west.lon > area.south_east.lon)
-            || dbg!(area.south_east.lat > self.north_west.lat)
-        {
+        if self.north_west.lon > area.south_east.lon || area.south_east.lat > self.north_west.lat {
             return false;
         }
 
-        if dbg!(self.south_east.lon < area.north_west.lon)
-            || dbg!(area.north_west.lat < self.south_east.lat)
-        {
+        if self.south_east.lon < area.north_west.lon || area.north_west.lat < self.south_east.lat {
             return false;
         }
 
@@ -192,14 +188,9 @@ where
         let lon_step =
             (bounds.north_west.lon - bounds.south_east.lon).abs() / input_data[0].len() as f32;
 
-        let root = create_recursive::<T, D>(&input_data, bounds, lat_step, lon_step, 0);
+        let (root, depth) = create_recursive::<T, D>(&input_data, bounds, lat_step, lon_step, 0);
 
-        let mut depth = 0;
-        find_depth(&root, &mut depth);
-        GeoTree {
-            root,
-            depth: depth as usize,
-        }
+        GeoTree { root, depth }
     }
 
     pub fn get_tile(&self, point: Coordinate, level: u32) -> Option<&Tile<T>> {
@@ -256,7 +247,7 @@ where
 
 pub trait Dataset<T> {
     fn aggregate(data: Vec<T>) -> T;
-    fn convolute(data: Vec<Vec<T>>) -> Vec<Vec<T>>;
+    fn convolute(data: Vec<Vec<T>>, level: usize) -> Vec<Vec<T>>;
 
     const STRIDE: usize;
     const TILE_SIZE: usize;
@@ -272,9 +263,9 @@ impl Dataset<Pixel> for EarthTextures {
         Default::default()
     }
 
-    fn convolute(data: Vec<Vec<Pixel>>) -> Vec<Vec<Pixel>> {
-        let h = data.len() / Self::TILE_SIZE;
-        let w = data[0].len() / Self::TILE_SIZE;
+    fn convolute(data: Vec<Vec<Pixel>>, level: usize) -> Vec<Vec<Pixel>> {
+        let h = Self::NUMBER_OF_CHILDREN.1.pow(level as u32);
+        let w = Self::NUMBER_OF_CHILDREN.0.pow(level as u32);
 
         extract_blocks(&data, h, w)
             .into_iter()
@@ -305,7 +296,7 @@ impl Dataset<Pixel> for EarthTextures {
     }
 
     const STRIDE: usize = 0;
-    const NUMBER_OF_CHILDREN: (usize, usize) = (4, 2);
+    const NUMBER_OF_CHILDREN: (usize, usize) = (2, 2);
     const TILE_SIZE: usize = 512;
 }
 
@@ -330,47 +321,6 @@ where
         buffer.append(&mut tile_main);
     }
 
-    // for y in 0..tiles.len() {
-    //     for x in 0..tiles[y].len() {
-    //         let tile = &tiles[y][x].tile; // it is a trap
-
-    //         println!("(buffer) y: {}", buffer.len());
-    //         println!("(buffer) x: {}", buffer[0].len());
-    //         println!("(tile) y: {}", tile.len());
-    //         println!("(tile) x: {}", tile[0].len());
-    //         println!("(input) y: {}", tiles.len());
-    //         println!("(input) x: {}", tiles[0].len());
-
-    //         tile.into_iter().enumerate().for_each(|t_y, row| {
-    //             row.into_iter().enumerate().for_each(|t_x, value| {
-    //                 let x = t_x + x * tile_size;
-    //                 kkk
-    //             })
-    //         });
-    //         for j in 0..tile.len() {
-    //             for i in 0..tile[j].len() {
-    //                 let x_i = x * tile_size + i;
-    //                 let y_i = y * tile_size + j;
-    //                 if x_i >= tiles[0].len() * tile_size {
-    //                     dbg!(tile_size);
-    //                     dbg!(i);
-    //                     dbg!(tile.len());
-    //                     dbg!(tile[j].len());
-
-    //                     dbg!(x);
-    //                     dbg!(y);
-    //                     dbg!(x_i);
-    //                     dbg!(y_i);
-    //                     dbg!(buffer.len());
-    //                     dbg!(buffer[0].len());
-    //                 }
-
-    //                 buffer[y_i][x_i] = tile[j][i];
-    //             }
-    //         }
-    //     }
-    // }
-
     buffer
 }
 fn extract_blocks<T: Clone>(
@@ -379,7 +329,7 @@ fn extract_blocks<T: Clone>(
     block_width: usize,
 ) -> Vec<Vec<Vec<Vec<T>>>> {
     if block_width <= 0 || block_height <= 0 {
-        panic!("{}, {}", block_width, block_height);
+        // panic!("{}, {}", block_width, block_height);
         return vec![];
     }
 
@@ -416,6 +366,10 @@ where
     let width = (data[0].len() + 1) / m;
     let height = (data.len() + 1) / n;
 
+    if width < D::TILE_SIZE {
+        return vec![];
+    }
+
     extract_blocks(data, height, width)
 }
 
@@ -424,48 +378,50 @@ pub fn create_recursive<T: Clone, D>(
     bounds: Bounds,
     lat_step: f32,
     lon_step: f32,
-    level: u32,
-) -> TileNode<T>
+    level: usize,
+) -> (TileNode<T>, usize)
 where
     D: Dataset<T>,
 {
-    dbg!(level);
-    TileNode {
-        bounds,
-        aggregate: D::aggregate(input.into_iter().flatten().cloned().collect()),
-        tile: D::convolute(input.to_vec()),
-        children: split_into_n_m_with_min_size::<T, D>(
-            input,
-            D::NUMBER_OF_CHILDREN.1,
-            D::NUMBER_OF_CHILDREN.0,
-        )
-        .into_iter()
-        .enumerate()
-        .map(|(y, row): (usize, Vec<Vec<Vec<T>>>)| {
-            row.into_iter()
-                .enumerate()
-                .map(|(x, new_tile): (usize, Vec<Vec<T>>)| {
-                    let new_bounds = Bounds {
-                        north_west: Coordinate {
-                            lat: bounds.north_west.lat - lat_step * (y as f32),
-                            lon: bounds.north_west.lon + lon_step * (y as f32),
-                        },
-                        south_east: Coordinate {
-                            lat: bounds.north_west.lat - lat_step * (y + 1) as f32,
-                            lon: bounds.north_west.lon + lon_step * (x + 1) as f32,
-                        },
-                    };
-                    create_recursive::<T, D>(&new_tile, new_bounds, lat_step, lon_step, level + 1)
-                })
-                .collect()
-        })
-        .collect(),
-    }
-}
+    let mut depth = level;
+    let children = split_into_n_m_with_min_size::<T, D>(
+        input,
+        D::NUMBER_OF_CHILDREN.1,
+        D::NUMBER_OF_CHILDREN.0,
+    )
+    .into_iter()
+    .enumerate()
+    .map(|(y, row): (usize, Vec<Vec<Vec<T>>>)| {
+        row.into_iter()
+            .enumerate()
+            .map(|(x, new_tile): (usize, Vec<Vec<T>>)| {
+                let new_bounds = Bounds {
+                    north_west: Coordinate {
+                        lat: bounds.north_west.lat - lat_step * (y as f32),
+                        lon: bounds.north_west.lon + lon_step * (y as f32),
+                    },
+                    south_east: Coordinate {
+                        lat: bounds.north_west.lat - lat_step * (y + 1) as f32,
+                        lon: bounds.north_west.lon + lon_step * (x + 1) as f32,
+                    },
+                };
+                let (child, d) =
+                    create_recursive::<T, D>(&new_tile, new_bounds, lat_step, lon_step, level + 1);
 
-fn find_depth<T>(root: &TileNode<T>, depth: &mut u32) {
-    if let Some(child) = root.children.first().and_then(|x| x.first()) {
-        *depth += 1;
-        find_depth(child, depth);
-    }
+                depth = depth.max(d);
+                child
+            })
+            .collect()
+    })
+    .collect();
+    dbg!(level);
+    (
+        TileNode {
+            bounds,
+            aggregate: D::aggregate(input.into_iter().flatten().cloned().collect()),
+            tile: D::convolute(input.to_vec(), depth + 1 - level),
+            children,
+        },
+        depth,
+    )
 }
