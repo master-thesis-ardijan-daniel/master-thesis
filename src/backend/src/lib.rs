@@ -1,4 +1,6 @@
-#[derive(Copy, Clone, Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Coordinate {
     pub lat: f32,
     pub lon: f32,
@@ -66,7 +68,7 @@ pub struct GeoTree<T> {
     // indices: Vec<LayerIndex>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Bounds {
     pub north_west: Coordinate,
     pub south_east: Coordinate,
@@ -213,19 +215,19 @@ where
         None
     }
 
-    pub fn get_tiles(&self, area: Bounds, level: u32) -> Vec<&Tile<T>> {
+    pub fn get_tiles(&self, area: Bounds, level: u32) -> Vec<TileRef<'_, T>> {
         fn f<T>(
             level: u32,
             current_level: u32,
             node: &TileNode<T>,
             area: Bounds,
-        ) -> Option<Vec<&Tile<T>>> {
+        ) -> Option<Vec<TileRef<'_, T>>> {
             dbg!(current_level);
 
             if dbg!(node.bounds.intersects(&area)) {
                 if current_level == level {
                     dbg!(node.bounds, current_level);
-                    return Some(vec![&node.tile]);
+                    return Some(vec![node.into()]);
                 }
 
                 return Some(
@@ -242,6 +244,21 @@ where
         }
 
         f(level, 0, &self.root, area).unwrap()
+    }
+}
+
+#[derive(Serialize)]
+pub struct TileRef<'a, T> {
+    pub tile: &'a Tile<T>,
+    pub bounds: Bounds,
+}
+
+impl<'a, T> Into<TileRef<'a, T>> for &'a TileNode<T> {
+    fn into(self) -> TileRef<'a, T> {
+        TileRef {
+            tile: &self.tile,
+            bounds: self.bounds,
+        }
     }
 }
 

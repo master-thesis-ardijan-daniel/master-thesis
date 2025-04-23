@@ -14,3 +14,4 @@ tower-http = { version = "0.6.1", features = ["fs", "trace"] }
 image = "*"
 itertools= "0.14"
 geo = "*"
+serde = { version = "*", features = ["derive"] }
