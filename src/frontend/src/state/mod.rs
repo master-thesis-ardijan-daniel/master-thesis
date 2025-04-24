@@ -267,11 +267,11 @@ impl State {
                 timestamp_writes: None,
             });
 
-            if self.render_wireframe {
-                render_pass.set_pipeline(&self.wireframe_pipeline);
-            } else {
-                render_pass.set_pipeline(&self.texture_pipeline);
-            }
+            // if self.render_wireframe {
+            render_pass.set_pipeline(&self.wireframe_pipeline);
+            // } else {
+            render_pass.set_pipeline(&self.texture_pipeline);
+            // }
 
             let mut indices = 0;
 
