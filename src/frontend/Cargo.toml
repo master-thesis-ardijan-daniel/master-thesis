@@ -34,6 +34,8 @@ bytemuck = { version =  "1.21.0", features = ["derive"] }
 glam = "0.30"
 web-time= "1.1"
 image="0.25"
+common = { path="../common" }
+gloo-net = {version="0.6.0",feature=["http"]}
 
 env_logger = { version="0.11.6", optional = true }
 log = { version="0.4.25", optional = true }

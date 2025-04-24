@@ -306,6 +306,7 @@ name = "backend"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "common",
  "geo",
  "image",
  "itertools 0.14.0",
@@ -531,6 +532,13 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "common"
+version = "0.0.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -832,10 +840,12 @@ name = "frontend"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "common",
  "console_error_panic_hook",
  "console_log",
  "env_logger",
  "glam",
+ "gloo-net",
  "image",
  "log",
  "wasm-bindgen",
@@ -978,6 +988,40 @@ name = "glam"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17fcdf9683c406c2fc4d124afd29c0d595e22210d633cbdb8695ba9935ab1dc6"
+
+[[package]]
+name = "gloo-net"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c06f627b1a58ca3d42b45d6104bf1e1a03799df472df00988b6ba21accc10580"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-sink",
+ "gloo-utils",
+ "http",
+ "js-sys",
+ "pin-project",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-utils"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5555354113b18c547c1d3a98fbf7fb32a9ff4f6fa112ce823a21641a0ba3aa"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
 
 [[package]]
 name = "glow"
