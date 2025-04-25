@@ -91,7 +91,7 @@ in
       );
     };
 
-    packages = {
+    packages = rec {
       default = config.packages.backend;
 
       backend = craneLib.buildPackage (
@@ -99,6 +99,8 @@ in
           inherit (native) cargoArtifacts;
 
           ASSETS_DIR = config.packages.frontend;
+
+          meta.mainProgram = "backend";
         }
       );
 
@@ -113,6 +115,15 @@ in
           '';
         }
       );
+
+      image = pkgs.dockerTools.buildLayeredImage {
+        name = backend.name;
+        tag = "latest";
+
+        config = {
+          Cmd = [ (lib.getExe backend) ];
+        };
+      };
     };
 
     devShells.default = craneLib.devShell {
