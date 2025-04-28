@@ -126,7 +126,10 @@ impl ApplicationHandler<CustomEvent> for App {
                 state.window.request_redraw();
             }
 
-            (event, Some(state)) => state.input(&event),
+            (event, Some(state)) => {
+                state.input(&event);
+                state.touch(&event);
+            }
 
             _ => {}
         }

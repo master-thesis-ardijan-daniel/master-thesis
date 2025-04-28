@@ -82,6 +82,14 @@ impl CameraController {
         };
     }
 
+    pub fn process_drag_start(&mut self) {
+        self.rotating = true;
+    }
+
+    pub fn process_drag_stop(&mut self) {
+        self.rotating = false;
+    }
+
     pub fn update_camera(&mut self, duration: Duration) -> AnimationState {
         let duration = duration.as_secs_f32();
 

@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use crate::{camera::CameraState, types::earth::EarthState};
+use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
 use winit::window::Window;
 
 mod input;
+mod touch;
 
 pub enum AnimationState {
     Animating,
@@ -23,6 +25,8 @@ pub struct State {
     pub texture_pipeline: wgpu::RenderPipeline,
     pub wireframe_pipeline: wgpu::RenderPipeline,
     render_wireframe: bool,
+
+    touch_state: TouchState,
 
     pub camera_state: CameraState,
     pub earth_state: EarthState,
@@ -188,6 +192,7 @@ impl State {
             multiview: None,
             cache: None,
         });
+
         Self {
             surface,
             device,
@@ -197,6 +202,7 @@ impl State {
             window,
             texture_pipeline,
             wireframe_pipeline,
+            touch_state: Default::default(),
             earth_state,
             camera_state,
             delta: Duration::ZERO,

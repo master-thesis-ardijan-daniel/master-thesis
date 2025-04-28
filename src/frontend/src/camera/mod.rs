@@ -110,9 +110,9 @@ impl Camera {
     pub fn animate(&mut self, duration: f32) -> AnimationState {
         let mut animation_state = AnimationState::Finished;
 
-        let friction_factor = (-self.friction * duration).exp();
-
         if !self.angular_velocity.is_near_identity() {
+            let friction_factor = (-self.friction * duration).exp();
+
             let (axis, angle) = self.angular_velocity.to_axis_angle();
 
             let frame_rotation = Quat::from_axis_angle(axis, angle * duration);
@@ -131,7 +131,7 @@ impl Camera {
         }
 
         if self.radius != self.current_radius {
-            self.current_radius += -(self.current_radius - self.radius) * friction_factor * 0.1;
+            self.current_radius += -(self.current_radius - self.radius) * self.friction * duration;
 
             if (self.radius - self.current_radius).abs() < 1e-3 {
                 self.current_radius = self.radius;
@@ -141,7 +141,7 @@ impl Camera {
         }
 
         if self.angle != self.current_angle {
-            self.current_angle += -(self.current_angle - self.angle) * friction_factor * 0.1;
+            self.current_angle += -(self.current_angle - self.angle) * self.friction * duration;
 
             if (self.angle - self.current_angle).abs() < 1e-3 {
                 self.current_angle = self.angle;
