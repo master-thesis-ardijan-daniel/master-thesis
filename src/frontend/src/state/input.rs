@@ -1,3 +1,4 @@
+use glam::Vec2;
 use winit::{
     dpi::PhysicalPosition,
     event::{KeyEvent, MouseButton, WindowEvent},
@@ -76,6 +77,25 @@ impl State {
                 if state.is_pressed() {
                     self.set_render_wireframe(!self.render_wireframe);
                     self.window.request_redraw();
+                }
+            }
+
+            WindowEvent::Touch(Touch {
+                phase, location, ..
+            }) => {
+                self.camera_state.controller.current_position =
+                    Vec2::new(location.x as f32, location.y as f32);
+
+                if phase == &TouchPhase::Started {
+                    self.camera_state.controller.rotating = true;
+                }
+
+                if phase == &TouchPhase::Moved {
+                    self.window.request_redraw();
+                }
+
+                if phase == &TouchPhase::Ended {
+                    self.camera_state.controller.rotating = false;
                 }
             }
 
