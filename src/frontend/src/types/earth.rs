@@ -17,6 +17,8 @@ use super::{Icosphere, Point};
 const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
 
+const TEXTURE_ATLAS_SIZE: u32 = 2048;
+
 #[derive(Debug)]
 pub struct EarthState {
     vertex_buffer: Buffer,
@@ -41,39 +43,39 @@ pub struct EarthState {
 }
 
 impl EarthState {
-    pub fn next_tile(&mut self, queue: &Queue) -> Option<()> {
-        if self.current_tile < self.tiles.len() {
-            let tile_metadata: TileMetadata = self.tiles.get(self.current_tile)?.into();
-            queue.write_buffer(
-                &self.tile_metadata_buffer,
-                0,
-                bytemuck::cast_slice(&[tile_metadata]),
-            );
+    // The shader code needs to loop over each of the tiles in order to check if any of them have anything it should sample
+    // if so, we sample from the respective tile
+    // need to make sure we sample withing width and height
 
-            let mut buffer = [0_u8; 256 * 256 * 4];
+    pub fn rewrite_tiles(&mut self, queue: &Queue) {
+        // Write the tile metadata as an array
+        // todo!();
 
-            let data = self
-                .tiles
-                .get(self.current_tile)
-                .unwrap_throw()
-                .tile
-                .iter()
-                .flatten()
-                .copied()
-                .flatten()
-                .collect::<Vec<u8>>();
-
-            let mut w = std::io::Cursor::new(buffer);
-            w.write(&data).unwrap_throw();
+        for (layer, tile) in self.tiles.iter().enumerate() {
+            //Pad the image, split into function if optimizing
+            let mut buffer = [[[0_u8; 4]; 256]; 256];
+            for y in 0..TEXTURE_HEIGHT as usize {
+                for x in 0..TEXTURE_WIDTH as usize {
+                    buffer[y][x] = *tile
+                        .tile
+                        .get(y)
+                        .and_then(|t| t.get(x))
+                        .unwrap_or(&[0_u8, 0, 0, 0]);
+                }
+            }
 
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &self.texture_buffer,
                     mip_level: 0,
-                    origin: Origin3d::ZERO,
+                    origin: Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer as u32,
+                    },
                     aspect: TextureAspect::All,
                 },
-                w.get_ref(),
+                &buffer.into_iter().flatten().flatten().collect::<Vec<u8>>(),
                 TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(self.texture_size.width * 4),
@@ -81,15 +83,10 @@ impl EarthState {
                 },
                 self.texture_size,
             );
-
-            self.current_tile += 1;
-
-            return Some(());
         }
-
-        self.current_tile = 0;
-        None
     }
+
+    pub fn write_a_single_tile_to_buffer(&mut self, new_tile: TileRef<[u8; 4]>, queue: Queue) {}
 
     pub async fn create(device: &Device) -> Self {
         let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
@@ -106,7 +103,7 @@ impl EarthState {
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: 32,
         };
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),

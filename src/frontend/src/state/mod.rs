@@ -367,9 +367,7 @@ impl State {
             indices += self.camera_state.render(&mut render_pass);
             indices += self.earth_state.render(&mut render_pass);
 
-            while self.earth_state.next_tile(&self.queue).is_some() {
-                render_pass.draw_indexed(0..indices, 0, 0..1);
-            }
+            render_pass.draw_indexed(0..indices, 0, 0..1);
         }
 
         {
