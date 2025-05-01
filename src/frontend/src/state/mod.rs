@@ -323,6 +323,7 @@ impl State {
                 timestamp_writes: None,
             });
 
+<<<<<<< HEAD
             render_pass.set_pipeline(&self.object_pipeline);
 
             let mut indices = 0;
@@ -391,6 +392,13 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.wireframe_pipeline);
+=======
+            // if self.render_wireframe {
+            render_pass.set_pipeline(&self.wireframe_pipeline);
+            // } else {
+            render_pass.set_pipeline(&self.texture_pipeline);
+            // }
+>>>>>>> 67a455bfcedbbbccbbe06bf72b7580f3ccd73618
 
             let mut indices = 0;
 
