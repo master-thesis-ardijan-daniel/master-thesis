@@ -12,3 +12,6 @@ repository = "https://github.com/master-thesis-ardijan-daniel/master-thesis"
 
 [workspace.metadata.crane]
 name = "thesis"
+
+[workspace.dependencies]
+bytemuck = { version = "1.21.0", features = ["derive"] }

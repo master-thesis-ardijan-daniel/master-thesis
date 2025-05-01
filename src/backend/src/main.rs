@@ -43,7 +43,7 @@ fn create_tree() -> GeoTree<Pixel> {
     for row in image.rows() {
         let mut out = Vec::new();
         for pixel in row {
-            out.push(pixel.0);
+            out.push([pixel.0[0], pixel.0[1], pixel.0[2], 255]);
         }
         data.push(out);
     }

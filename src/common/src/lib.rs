@@ -6,10 +6,38 @@ pub struct Coordinate {
     pub lon: f32,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TileRef<T> {
     pub tile: Vec<Vec<T>>,
     pub bounds: Bounds,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TileMetadata {
+    pub nw_lat: f32,
+    pub nw_lon: f32,
+    pub se_lat: f32,
+    pub se_lon: f32,
+    pub width: u32,
+    pub height: u32,
+    pub pad_1: u32,
+    pub pad_2: u32,
+}
+
+impl<T> From<&TileRef<T>> for TileMetadata {
+    fn from(tile: &TileRef<T>) -> Self {
+        Self {
+            nw_lat: tile.bounds.north_west.lat,
+            nw_lon: tile.bounds.north_west.lon,
+            se_lat: tile.bounds.south_east.lat,
+            se_lon: tile.bounds.south_east.lon,
+            width: tile.tile[0].len() as u32,
+            height: tile.tile.len() as u32,
+            pad_1: 0,
+            pad_2: 0,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]

@@ -160,7 +160,7 @@ pub trait Dataset<T> {
 
 pub struct EarthTextures;
 
-pub type Pixel = [u8; 3];
+pub type Pixel = [u8; 4];
 
 impl Dataset<Pixel> for EarthTextures {
     fn aggregate(data: Vec<Pixel>) -> Pixel {
@@ -192,6 +192,7 @@ impl Dataset<Pixel> for EarthTextures {
                             kernel_value[0] as u8,
                             kernel_value[1] as u8,
                             kernel_value[2] as u8,
+                            255,
                         ]
                     })
                     .collect()

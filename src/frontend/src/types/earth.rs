@@ -1,3 +1,7 @@
+use std::{io::Write, sync::Arc};
+
+use common::{TileMetadata, TileRef};
+use wasm_bindgen::UnwrapThrowExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Origin3d, Queue,
@@ -6,7 +10,7 @@ use wgpu::{
     TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
 };
 
-use crate::tiles::{Tile, TileMetadata};
+use crate::tiles::get_tiles;
 
 use super::{Icosphere, Point};
 
@@ -30,7 +34,7 @@ pub struct EarthState {
     texture_buffer: wgpu::Texture,
     texture_bind_group: wgpu::BindGroup,
     texture_size: wgpu::Extent3d,
-    tiles: Vec<Tile>,
+    tiles: Vec<TileRef<[u8; 4]>>,
     current_tile: usize,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     tile_metadata_buffer: Buffer,
@@ -38,44 +42,59 @@ pub struct EarthState {
 
 impl EarthState {
     pub fn next_tile(&mut self, queue: &Queue) -> Option<()> {
-        if self.current_tile >= self.tiles.len() {
-            return None;
-        }
+        if self.current_tile < self.tiles.len() {
+            let tile_metadata: TileMetadata = self.tiles.get(self.current_tile)?.into();
+            queue.write_buffer(
+                &self.tile_metadata_buffer,
+                0,
+                bytemuck::cast_slice(&[tile_metadata]),
+            );
 
-        let tile_metadata: TileMetadata = (&self.tiles[self.current_tile]).into();
-        queue.write_buffer(
-            &self.tile_metadata_buffer,
-            0,
-            bytemuck::cast_slice(&[tile_metadata]),
-        );
-        self.current_tile += 1;
+            let mut buffer = [0_u8; 256 * 256 * 4];
 
-        queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &self.texture_buffer,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: TextureAspect::All,
-            },
-            &self.tiles[self.current_tile]
-                .data
+            let data = self
+                .tiles
+                .get(self.current_tile)
+                .unwrap_throw()
+                .tile
                 .iter()
+                .flatten()
                 .copied()
                 .flatten()
-                .collect::<Vec<u8>>(),
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(self.texture_size.width * 4),
-                rows_per_image: Some(self.texture_size.height),
-            },
-            self.texture_size,
-        );
+                .collect::<Vec<u8>>();
 
-        Some(())
+            let mut w = std::io::Cursor::new(buffer);
+            w.write(&data).unwrap_throw();
+
+            queue.write_texture(
+                TexelCopyTextureInfo {
+                    texture: &self.texture_buffer,
+                    mip_level: 0,
+                    origin: Origin3d::ZERO,
+                    aspect: TextureAspect::All,
+                },
+                w.get_ref(),
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.texture_size.width * 4),
+                    rows_per_image: Some(self.texture_size.height),
+                },
+                self.texture_size,
+            );
+
+            self.current_tile += 1;
+
+            return Some(());
+        }
+
+        self.current_tile = 0;
+        None
     }
 
-    pub fn create(device: &Device) -> Self {
+    pub async fn create(device: &Device) -> Self {
         let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
+
+        let tiles = get_tiles().await;
 
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
@@ -194,7 +213,7 @@ impl EarthState {
             texture_bind_group,
             texture_size,
             tile_metadata_buffer,
-            tiles: vec![],
+            tiles,
             current_tile: 0,
         }
     }
