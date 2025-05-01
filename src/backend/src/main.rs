@@ -4,6 +4,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use common::{Bounds, Coordinate};
 use image::Rgb;
 use itertools::multizip;
 use serde::Deserialize;
