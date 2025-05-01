@@ -31,6 +31,7 @@ pub struct State {
 
     pub delta: Duration,
     depth_texture: DepthTexture,
+    object_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -111,8 +112,8 @@ impl State {
             push_constant_ranges: &[],
         });
 
-        let texture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
+        let object_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Object Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -120,9 +121,38 @@ impl State {
                 buffers: &[EarthState::descriptor()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
+            fragment: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
+        let texture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_tiles"),
+                buffers: &[EarthState::descriptor()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
             fragment: Some(FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_tiles"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState {
@@ -213,6 +243,7 @@ impl State {
             window,
             depth_texture,
             texture_pipeline,
+            object_pipeline,
             wireframe_pipeline,
             earth_state,
             camera_state,
@@ -272,9 +303,9 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.01,
-                            g: 0.01,
-                            b: 0.01,
+                            r: 0.2,
+                            g: 0.2,
+                            b: 0.2,
                             a: 1.,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -292,7 +323,7 @@ impl State {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.texture_pipeline);
+            render_pass.set_pipeline(&self.object_pipeline);
 
             let mut indices = 0;
 
@@ -300,6 +331,40 @@ impl State {
             indices += self.earth_state.render(&mut render_pass);
 
             render_pass.draw_indexed(0..indices, 0, 0..1);
+        }
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Main render pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.texture_pipeline);
+
+            let mut indices = 0;
+
+            indices += self.camera_state.render(&mut render_pass);
+            indices += self.earth_state.render(&mut render_pass);
+
+            while self.earth_state.next_tile(&self.queue).is_some() {
+                render_pass.draw_indexed(0..indices, 0, 0..1);
+            }
         }
 
         {
@@ -310,7 +375,7 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
+                        store: wgpu::StoreOp::Discard,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
