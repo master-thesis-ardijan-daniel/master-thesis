@@ -30,7 +30,7 @@ impl<T> TileRef<T>
 where
     T: Clone + Zeroable,
 {
-    pub fn get_padded_tile(&mut self, desired_width: u32, desired_height: u32) -> Vec<Vec<T>> {
+    pub fn get_padded_tile(&self, desired_width: u32, desired_height: u32) -> Vec<Vec<T>> {
         let mut tile = self.tile.clone();
 
         tile.resize_with(desired_height as usize, || {

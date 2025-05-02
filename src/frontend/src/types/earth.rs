@@ -4,10 +4,11 @@ use common::{TileMetadata, TileRef};
 use wasm_bindgen::UnwrapThrowExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Origin3d, Queue,
-    RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo,
-    TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
+    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
+    Origin3d, Queue, RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout,
+    TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat,
+    VertexStepMode,
 };
 
 use crate::tiles::get_tiles;
@@ -35,9 +36,7 @@ pub struct EarthState {
     num_indices: u32,
     texture_buffer: wgpu::Texture,
     texture_bind_group: wgpu::BindGroup,
-    texture_size: wgpu::Extent3d,
     tiles: Vec<TileRef<[u8; 4]>>,
-    current_tile: usize,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     tile_metadata_buffer: Buffer,
 }
@@ -51,43 +50,80 @@ impl EarthState {
         // Write the tile metadata as an array
         // todo!();
         //
+        let mut texture_data: Vec<u8> =
+            Vec::with_capacity(self.tiles.len() * (TEXTURE_WIDTH * TEXTURE_HEIGHT * 4) as usize);
 
-        for (layer, tile) in self.tiles.iter().enumerate() {
-            //Pad the image, split into function if optimizing
-            let mut buffer = [[[0_u8; 4]; 256]; 256];
-            for y in 0..TEXTURE_HEIGHT as usize {
-                for x in 0..TEXTURE_WIDTH as usize {
-                    buffer[y][x] = *tile
-                        .tile
-                        .get(y)
-                        .and_then(|t| t.get(x))
-                        .unwrap_or(&[0_u8, 0, 0, 0]);
-                }
-            }
-
-            queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: &self.texture_buffer,
-                    mip_level: 0,
-                    origin: Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: layer as u32,
-                    },
-                    aspect: TextureAspect::All,
-                },
-                &buffer.into_iter().flatten().flatten().collect::<Vec<u8>>(),
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.texture_size.width * 4),
-                    rows_per_image: Some(self.texture_size.height),
-                },
-                self.texture_size,
+        for tile in &self.tiles {
+            texture_data.extend(
+                tile.get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                    .into_iter()
+                    .flatten()
+                    .flatten(),
             );
         }
+
+        let tile_metadata = self
+            .tiles
+            .iter()
+            .map(|x| TileMetadata::from(x))
+            .collect::<Vec<TileMetadata>>();
+
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture_buffer,
+                mip_level: 0,
+                origin: Origin3d { x: 0, y: 0, z: 0 },
+                aspect: TextureAspect::All,
+            },
+            &texture_data,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(TEXTURE_WIDTH * 4),
+                rows_per_image: Some(TEXTURE_HEIGHT),
+            },
+            Extent3d {
+                width: TEXTURE_WIDTH,
+                height: TEXTURE_HEIGHT,
+                depth_or_array_layers: self.tiles.len() as u32,
+            },
+        );
     }
 
-    pub fn write_a_single_tile_to_buffer(&mut self, new_tile: TileRef<[u8; 4]>, queue: Queue) {}
+    pub fn write_a_single_tile_to_buffer(
+        &mut self,
+        new_tile: TileRef<[u8; 4]>,
+        layer: u32,
+        queue: Queue,
+    ) {
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture_buffer,
+                mip_level: 0,
+                origin: Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: layer,
+                },
+                aspect: TextureAspect::All,
+            },
+            &new_tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect::<Vec<u8>>(),
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(TEXTURE_WIDTH * 4),
+                rows_per_image: Some(TEXTURE_HEIGHT),
+            },
+            Extent3d {
+                width: TEXTURE_WIDTH,
+                height: TEXTURE_HEIGHT,
+                depth_or_array_layers: 0,
+            },
+        );
+    }
 
     pub async fn create(device: &Device) -> Self {
         let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
