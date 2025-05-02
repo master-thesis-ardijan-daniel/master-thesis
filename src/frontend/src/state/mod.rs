@@ -100,8 +100,10 @@ impl State {
         };
 
         let camera_state = CameraState::create(&device, &size);
-        let earth_state = EarthState::create(&device).await;
+        let mut earth_state = EarthState::create(&device);
         let depth_texture = DepthTexture::create(&device, &config);
+
+        earth_state.fetch_tiles().await;
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
@@ -123,7 +125,7 @@ impl State {
             },
             fragment: Some(FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_tiles"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState {
@@ -337,14 +339,19 @@ impl State {
 
             render_pass.draw_indexed(0..indices, 0, 0..1);
         }
-        {
+        if false {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Texture render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.1,
+                            a: 1.,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -370,38 +377,38 @@ impl State {
             render_pass.draw_indexed(0..indices, 0, 0..1);
         }
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main render pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Discard,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
+        // {
+        //     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        //         label: Some("Main render pass"),
+        //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        //             view: &view,
+        //             resolve_target: None,
+        //             ops: wgpu::Operations {
+        //                 load: wgpu::LoadOp::Load,
+        //                 store: wgpu::StoreOp::Discard,
+        //             },
+        //         })],
+        //         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+        //             view: &self.depth_texture.view,
+        //             depth_ops: Some(wgpu::Operations {
+        //                 load: wgpu::LoadOp::Load,
+        //                 store: wgpu::StoreOp::Store,
+        //             }),
+        //             stencil_ops: None,
+        //         }),
+        //         occlusion_query_set: None,
+        //         timestamp_writes: None,
+        //     });
 
-            render_pass.set_pipeline(&self.wireframe_pipeline);
+        //     render_pass.set_pipeline(&self.wireframe_pipeline);
 
-            let mut indices = 0;
+        //     let mut indices = 0;
 
-            indices += self.camera_state.render(&mut render_pass);
-            indices += self.earth_state.render(&mut render_pass);
+        //     indices += self.camera_state.render(&mut render_pass);
+        //     indices += self.earth_state.render(&mut render_pass);
 
-            render_pass.draw_indexed(0..indices, 0, 0..1);
-        }
+        //     render_pass.draw_indexed(0..indices, 0, 0..1);
+        // }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

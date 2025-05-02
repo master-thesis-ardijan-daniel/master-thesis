@@ -66,7 +66,13 @@ impl EarthState {
             .tiles
             .iter()
             .map(|x| TileMetadata::from(x))
-            .collect::<Vec<TileMetadata>>();
+            .collect::<Vec<_>>();
+
+        queue.write_buffer(
+            &self.tile_metadata_buffer,
+            0,
+            &bytemuck::cast_slice(&tile_metadata),
+        );
 
         queue.write_texture(
             TexelCopyTextureInfo {
@@ -125,14 +131,16 @@ impl EarthState {
         );
     }
 
-    pub async fn create(device: &Device) -> Self {
-        let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
+    pub async fn fetch_tiles(&mut self) {
+        self.tiles = get_tiles().await;
+    }
 
-        let tiles = get_tiles().await;
+    pub fn create(device: &Device) -> Self {
+        let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
 
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             size: size_of::<TileMetadata>() as u64 * 32,
             mapped_at_creation: false,
         });
@@ -231,6 +239,7 @@ impl EarthState {
                 },
             ],
         });
+
         Self {
             vertex_buffer,
             index_buffer,
@@ -245,10 +254,8 @@ impl EarthState {
             num_indices: 0,
             texture_buffer,
             texture_bind_group,
-            texture_size,
             tile_metadata_buffer,
-            tiles,
-            current_tile: 0,
+            tiles: vec![],
         }
     }
 
@@ -305,6 +312,8 @@ impl EarthState {
             contents: bytemuck::cast_slice(&icosphere_faces),
             usage: BufferUsages::INDEX,
         });
+
+        self.rewrite_tiles(queue);
 
         self.previous_subdivision_level = self.current_subdivision_level;
         self.previous_output_as_lines = self.current_output_as_lines;
