@@ -46,37 +46,30 @@ struct TileMetadata {
 @group(1) @binding(1) var s_diffuse: sampler;
 @group(1) @binding(2) var<uniform> metadata: Metadata;
 
+
 @fragment
 fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     const PI: f32 = 3.14159265358979323846264338327950288;
 
-    for (var layer = 2; layer < 3; layer++) {
-        let metadata = metadata.tiles[layer];
+    let layer = 1;
+    let metadata = metadata.tiles[layer];
 
-        let nw_lat = radians(metadata.nw_lat + 90.);
-        let nw_lon = radians(metadata.nw_lon + 180.);
-        let se_lat = radians(metadata.se_lat + 90.);
-        let se_lon = radians(metadata.se_lon + 180.);
+    let nw_lat = (metadata.nw_lat + 90.0) / 180.0;
+    let nw_lon = (metadata.nw_lon + 180.0) / 360.0;
+    let se_lat = (metadata.se_lat - 1.+ 90.0) / 180.0;
+    let se_lon = (metadata.se_lon + 1.+ 180.0) / 360.0;
 
-        let pos = normalize(in.pos);
-        let lon = atan2(pos.x, -pos.y) / (2. * PI * f32(metadata.width) / 256.);
-        let lat = asin(pos.z) / (PI * f32(metadata.height) / 256.);
-
-        // if (lat <= nw_lat || lat >= se_lat || lon >= nw_lon || lon <= se_lon) {
-            let u = (lon - nw_lon) / (se_lon - nw_lon);
-            let v = (lat - nw_lat) / (se_lat - nw_lat);
-
-        //     let u = 0.5;
-        //     let v = 0.5;
-
-        //     return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
-        // }
-        //
-
-        return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
+    let pos = normalize(in.pos);
+    let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) + 0.5;
+    let lat = (asin(pos.z) / PI) + 0.5;
+    if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
+        return vec4<f32>(0.0, 0.0, lat, 1.0);
     }
 
-    discard;
+    let u = (lon - nw_lon) / (se_lon - nw_lon);
+    let v = (lat - se_lat) / (se_lat - nw_lat);
+    return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
+    // return vec4<f32>(lon, lat, 0.0, 1.0); // Debug color based on lon/lat
 }
 
 // @fragment
