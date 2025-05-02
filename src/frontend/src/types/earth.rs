@@ -50,6 +50,7 @@ impl EarthState {
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
         // Write the tile metadata as an array
         // todo!();
+        //
 
         for (layer, tile) in self.tiles.iter().enumerate() {
             //Pad the image, split into function if optimizing
@@ -95,8 +96,8 @@ impl EarthState {
 
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            size: size_of::<TileMetadata>() as u64 * 32,
             mapped_at_creation: false,
         });
 
@@ -152,7 +153,7 @@ impl EarthState {
                         visibility: ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                         count: None,

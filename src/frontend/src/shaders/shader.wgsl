@@ -38,9 +38,9 @@ struct TileMetadata {
     pad_2: u32,
 }
 
-@group(1) @binding(0) var t_diffuse: texture_2d<f32>; 
+@group(1) @binding(0) var t_diffuse: texture_2d_array<f32>; 
 @group(1) @binding(1) var s_diffuse: sampler;
-@group(1) @binding(2) var<uniform> metadata: TileMetadata;
+@group(1) @binding(2) var<storage,read> metadata: array<TileMetadata>;
 
 @fragment
 fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -62,7 +62,9 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let u = (lon - nw_lon) / (se_lon - nw_lon);
     let v = (lat - se_lat) / (nw_lat - se_lat);
 
-    return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v));
+    let layer =0;
+
+    return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v),layer);
 }
 
 @fragment

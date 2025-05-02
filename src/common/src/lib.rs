@@ -25,6 +25,24 @@ pub struct TileMetadata {
     pub pad_2: u32,
 }
 
+impl<T> TileRef<T> {
+    fn get_padded_tile(&self,desired_width: u32, desired_height: u32) -> Vec<Vec<T>> {
+
+        let mut tile =self.tile;
+
+        tile.extend(std::iter::repeat_n(Default::default, (desired_height-tile.len()) as usize));
+
+
+            
+            for y in 0..TEXTURE_HEIGHT as usize {
+                for x in 0..TEXTURE_WIDTH as usize {
+                    x. 
+                }
+            }
+
+    }
+}
+
 impl<T> From<&TileRef<T>> for TileMetadata {
     fn from(tile: &TileRef<T>) -> Self {
         Self {
