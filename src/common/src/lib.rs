@@ -1,3 +1,4 @@
+use bytemuck::Zeroable;
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -25,21 +26,22 @@ pub struct TileMetadata {
     pub pad_2: u32,
 }
 
-impl<T> TileRef<T> {
-    fn get_padded_tile(&self,desired_width: u32, desired_height: u32) -> Vec<Vec<T>> {
+impl<T> TileRef<T>
+where
+    T: Clone + Zeroable,
+{
+    pub fn get_padded_tile(&mut self, desired_width: u32, desired_height: u32) -> Vec<Vec<T>> {
+        let mut tile = self.tile.clone();
 
-        let mut tile =self.tile;
+        tile.resize_with(desired_height as usize, || {
+            vec![T::zeroed(); desired_width as usize]
+        });
 
-        tile.extend(std::iter::repeat_n(Default::default, (desired_height-tile.len()) as usize));
+        for y in &mut tile {
+            y.resize_with(desired_width as usize, T::zeroed);
+        }
 
-
-            
-            for y in 0..TEXTURE_HEIGHT as usize {
-                for x in 0..TEXTURE_WIDTH as usize {
-                    x. 
-                }
-            }
-
+        tile
     }
 }
 
