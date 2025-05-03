@@ -67,9 +67,10 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let u = (lon - nw_lon) / (se_lon - nw_lon);
-    let v = (lat - se_lat) / (se_lat - nw_lat);
-    return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
-    // return vec4<f32>(lon, lat, 0.0, 1.0); // Debug color based on lon/lat
+    let v = (lat - se_lat) / ( nw_lat - se_lat);
+    // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
+    return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), 0);
+    // return vec4<f32>(u, v, 0.0, 1.0); // Debug color based on lon/lat
 }
 
 // @fragment
@@ -80,8 +81,9 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 //     let u = atan2(pos.x, -pos.y) / (2. * PI) + 0.5;
 //     let v = asin(pos.z)/PI  + 0.5;
 
-//     return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), 0);
-//     // return vec4<f32>(in.pos, 1.0);
+//     return vec4<f32>(u, v, 0.0, 1.0); // Debug color based on lon/lat
+    // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), 0);
+    // return vec4<f32>(in.pos, 1.0);
 // }
 
 @fragment
