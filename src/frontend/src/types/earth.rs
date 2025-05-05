@@ -1,12 +1,24 @@
+use std::{io::Write, sync::Arc};
+
+use common::{TileMetadata, TileRef};
+use wasm_bindgen::UnwrapThrowExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Origin3d, Queue,
-    RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo,
-    TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
+    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
+    Origin3d, Queue, RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout,
+    TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat,
+    VertexStepMode,
 };
 
+use crate::tiles::get_tiles;
+
 use super::{Icosphere, Point};
+
+const TEXTURE_HEIGHT: u32 = 256;
+const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
+
+const TEXTURE_ATLAS_SIZE: u32 = 2048;
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -23,15 +35,142 @@ pub struct EarthState {
     num_vertices: u32,
     num_indices: u32,
     texture_buffer: wgpu::Texture,
-    texture_size: wgpu::Extent3d,
-    current_texture: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
     texture_bind_group: wgpu::BindGroup,
+    tiles: Vec<TileRef<[u8; 4]>>,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
+    tile_metadata_buffer: Buffer,
 }
 
 impl EarthState {
+    // The shader code needs to loop over each of the tiles in order to check if any of them have anything it should sample
+    // if so, we sample from the respective tile
+    // need to make sure we sample withing width and height
+
+    pub fn rewrite_tiles(&mut self, queue: &Queue) {
+        // Write the tile metadata as an array
+        // todo!();
+        //
+        let mut texture_data: Vec<u8> =
+            Vec::with_capacity(self.tiles.len() * (TEXTURE_WIDTH * TEXTURE_HEIGHT * 4) as usize);
+
+        for tile in &self.tiles {
+            texture_data.extend(
+                tile.get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                    .into_iter()
+                    .flatten()
+                    .flatten(),
+            );
+        }
+
+        let tile_metadata = self
+            .tiles
+            .iter()
+            .map(|x| TileMetadata::from(x))
+            .collect::<Vec<_>>();
+
+        queue.write_buffer(
+            &self.tile_metadata_buffer,
+            0,
+            &bytemuck::cast_slice(&tile_metadata),
+        );
+
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture_buffer,
+                mip_level: 0,
+                origin: Origin3d { x: 0, y: 0, z: 0 },
+                aspect: TextureAspect::All,
+            },
+            &texture_data,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(TEXTURE_WIDTH * 4),
+                rows_per_image: Some(TEXTURE_HEIGHT),
+            },
+            Extent3d {
+                width: TEXTURE_WIDTH,
+                height: TEXTURE_HEIGHT,
+                depth_or_array_layers: self.tiles.len() as u32,
+            },
+        );
+    }
+
+    pub fn write_a_single_tile_to_buffer(
+        &mut self,
+        new_tile: TileRef<[u8; 4]>,
+        layer: u32,
+        queue: Queue,
+    ) {
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture_buffer,
+                mip_level: 0,
+                origin: Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: layer,
+                },
+                aspect: TextureAspect::All,
+            },
+            &new_tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect::<Vec<u8>>(),
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(TEXTURE_WIDTH * 4),
+                rows_per_image: Some(TEXTURE_HEIGHT),
+            },
+            Extent3d {
+                width: TEXTURE_WIDTH,
+                height: TEXTURE_HEIGHT,
+                depth_or_array_layers: 0,
+            },
+        );
+    }
+
+    pub async fn fetch_tiles(&mut self) {
+        self.tiles = get_tiles().await;
+    }
+
     pub fn create(device: &Device) -> Self {
         let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
+
+        let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("tile_metadata_buffer"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            size: size_of::<TileMetadata>() as u64 * 32,
+            mapped_at_creation: false,
+        });
+
+        let texture_size = wgpu::Extent3d {
+            width: TEXTURE_WIDTH,
+            height: TEXTURE_HEIGHT,
+            depth_or_array_layers: 32,
+        };
+        let texture_buffer = device.create_texture(&TextureDescriptor {
+            label: Some("earth_texture_buffer"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let diffuse_texture_view = texture_buffer.create_view(&TextureViewDescriptor::default());
+        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
 
         // Initializing empty buffers is fine,
         // since we initialize new ones on update
@@ -49,37 +188,6 @@ impl EarthState {
             mapped_at_creation: false,
         });
 
-        // let texture_bytes = include_bytes!("../../checkerboard_test.png");
-        let texture_bytes = include_bytes!("../../earthmap2k.jpg");
-        let texture_img = image::load_from_memory(texture_bytes).unwrap();
-        let texture_rgba = texture_img.to_rgba8();
-        let texture_size = wgpu::Extent3d {
-            width: texture_img.width(),
-            height: texture_img.height(),
-            depth_or_array_layers: 1,
-        };
-        let diffuse_texture = device.create_texture(&TextureDescriptor {
-            label: Some("earth_texture_buffer"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let diffuse_texture_view = diffuse_texture.create_view(&TextureViewDescriptor::default());
-        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("earth_texture_bind_group"),
@@ -89,7 +197,7 @@ impl EarthState {
                         visibility: ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                         count: None,
@@ -100,10 +208,20 @@ impl EarthState {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
-        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("earth_texture_diffuse_bind_group"),
             layout: &texture_bind_group_layout,
             entries: &[
@@ -115,18 +233,18 @@ impl EarthState {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
                 },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: tile_metadata_buffer.as_entire_binding(),
+                },
             ],
         });
 
         Self {
             vertex_buffer,
             index_buffer,
-            texture_buffer: diffuse_texture,
-            texture_size,
             previous_output_as_lines: false,
             current_output_as_lines: false,
-            current_texture: texture_rgba,
-            texture_bind_group: diffuse_bind_group,
             texture_bind_group_layout,
 
             icosphere,
@@ -134,6 +252,10 @@ impl EarthState {
             current_subdivision_level: 0,
             num_vertices: 0,
             num_indices: 0,
+            texture_buffer,
+            texture_bind_group,
+            tile_metadata_buffer,
+            tiles: vec![],
         }
     }
 
@@ -167,22 +289,6 @@ impl EarthState {
             self.icosphere
                 .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level)
         } else {
-            queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: &self.texture_buffer,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect: TextureAspect::All,
-                },
-                &self.current_texture,
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.texture_size.width * 4),
-                    rows_per_image: Some(self.texture_size.height),
-                },
-                self.texture_size,
-            );
-
             self.icosphere
                 .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level)
         };
@@ -206,6 +312,8 @@ impl EarthState {
             contents: bytemuck::cast_slice(&icosphere_faces),
             usage: BufferUsages::INDEX,
         });
+
+        self.rewrite_tiles(queue);
 
         self.previous_subdivision_level = self.current_subdivision_level;
         self.previous_output_as_lines = self.current_output_as_lines;

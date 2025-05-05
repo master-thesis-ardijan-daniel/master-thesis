@@ -14,3 +14,5 @@ tower-http = { version = "0.6.1", features = ["fs", "trace"] }
 serde = { version = "*", features = ["derive"] }
 geo = { version = "*", features = ["use-serde"] }
 image = { version = "*", features = ["serde"] }
+itertools= "0.14"
+common = { path="../common" }
