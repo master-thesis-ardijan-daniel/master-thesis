@@ -52,6 +52,8 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     const PI: f32 = 3.14159265358979323846264338327950288;
 
     let pos = normalize(in.pos);
+    let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) + 0.5;
+    let lat = (asin(pos.z) / PI) + 0.5;
     for (var layer = 0; layer<32 ; layer++){
         let metadata = metadata.tiles[layer];
 
@@ -60,8 +62,6 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         let se_lat = (metadata.se_lat + 90.0) / 180.0;
         let se_lon = (metadata.se_lon + 180.0) / 360.0;
 
-        let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) + 0.5;
-        let lat = (asin(pos.z) / PI) + 0.5;
         if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
             continue;
             // return vec4<f32>(0.0, 0.0, lat, 1.0);
@@ -78,8 +78,9 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
     }
 
-    // return vec4<f32>(pos.x, 0., 0.0, 1.0); // Debug color based on lon/lat
     discard;
+
+    // instead of discard, write to buffer that this coordinate has no color.
 }
 
 // @fragment
