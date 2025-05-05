@@ -52,9 +52,9 @@ impl<T> From<&TileRef<T>> for TileMetadata {
     fn from(tile: &TileRef<T>) -> Self {
         Self {
             nw_lat: tile.bounds.max().y,
-            nw_lon: tile.bounds.max().x,
+            nw_lon: tile.bounds.min().x,
             se_lat: tile.bounds.min().y,
-            se_lon: tile.bounds.min().x,
+            se_lon: tile.bounds.max().x,
             width: tile.data[0].len() as u32,
             height: tile.data.len() as u32,
             pad_1: 0,

@@ -54,7 +54,7 @@ async fn get_tiles(
     Query(tile_query): Query<TileQuery>,
     State(state): State<BackendState>,
 ) -> impl IntoResponse {
-    let query = Bounds::new(Coord { x: -180., y: 90. }, Coord { x: -175., y: 85. });
+    let query = Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. });
 
     Json(state.image_tree.get_tiles(query, tile_query.level)).into_response()
 }

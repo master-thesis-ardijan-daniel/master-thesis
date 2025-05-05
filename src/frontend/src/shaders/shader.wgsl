@@ -51,26 +51,35 @@ struct TileMetadata {
 fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     const PI: f32 = 3.14159265358979323846264338327950288;
 
-    let layer = 1;
-    let metadata = metadata.tiles[layer];
-
-    let nw_lat = (metadata.nw_lat + 90.0) / 180.0;
-    let nw_lon = (metadata.nw_lon + 180.0) / 360.0;
-    let se_lat = (metadata.se_lat - 1.+ 90.0) / 180.0;
-    let se_lon = (metadata.se_lon + 1.+ 180.0) / 360.0;
-
     let pos = normalize(in.pos);
-    let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) + 0.5;
-    let lat = (asin(pos.z) / PI) + 0.5;
-    if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
-        return vec4<f32>(0.0, 0.0, lat, 1.0);
+    for (var layer = 0; layer<32 ; layer++){
+        let metadata = metadata.tiles[layer];
+
+        let nw_lat = (metadata.nw_lat + 90.0) / 180.0;
+        let nw_lon = (metadata.nw_lon + 180.0) / 360.0;
+        let se_lat = (metadata.se_lat + 90.0) / 180.0;
+        let se_lon = (metadata.se_lon + 180.0) / 360.0;
+
+        let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) + 0.5;
+        let lat = (asin(pos.z) / PI) + 0.5;
+        if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
+            continue;
+            // return vec4<f32>(0.0, 0.0, lat, 1.0);
+        }
+
+        let u = (lon - nw_lon) / (se_lon - nw_lon);
+        let v = (lat - se_lat) / ( nw_lat - se_lat);
+
+
+        let scaled_u = u * f32(metadata.width)/256.;
+        let scaled_v = v * f32(metadata.height)/256.;
+        // Scale u and v
+        // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
+        return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
     }
 
-    let u = (lon - nw_lon) / (se_lon - nw_lon);
-    let v = (lat - se_lat) / ( nw_lat - se_lat);
-    // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
-    return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), 0);
-    // return vec4<f32>(u, v, 0.0, 1.0); // Debug color based on lon/lat
+    // return vec4<f32>(pos.x, 0., 0.0, 1.0); // Debug color based on lon/lat
+    discard;
 }
 
 // @fragment

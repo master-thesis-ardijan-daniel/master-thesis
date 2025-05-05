@@ -9,7 +9,7 @@ use wgpu::{
 
 pub async fn get_tiles() -> Vec<TileRef<[u8; 4]>> {
     let raw_data = gloo_net::http::Request::get("/tiles")
-        .query([("level", "0")])
+        .query([("level", "2")])
         .send()
         .await
         .expect("Error, request failed! ");
