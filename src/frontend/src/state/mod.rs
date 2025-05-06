@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::{camera::CameraState, types::earth::EarthState};
-use touch::TouchState;
 use depth_texture::DepthTexture;
+use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
 use winit::window::Window;
@@ -16,6 +16,15 @@ pub enum AnimationState {
     Finished,
 }
 
+impl AnimationState {
+    pub fn is_animating(&self) -> bool {
+        match self {
+            AnimationState::Animating => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct State {
     pub surface: wgpu::Surface<'static>,
@@ -24,7 +33,7 @@ pub struct State {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: Arc<Window>,
-    pub texture_pipeline: wgpu::RenderPipeline,
+    // pub texture_pipeline: wgpu::RenderPipeline,
     pub wireframe_pipeline: wgpu::RenderPipeline,
     render_wireframe: bool,
 
@@ -35,7 +44,7 @@ pub struct State {
 
     pub delta: Duration,
     depth_texture: DepthTexture,
-    object_pipeline: wgpu::RenderPipeline,
+    main_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -118,49 +127,8 @@ impl State {
             push_constant_ranges: &[],
         });
 
-        let object_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let main_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Object Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[EarthState::descriptor()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(FragmentState {
-                module: &shader,
-                entry_point: Some("fs_tiles"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE,
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-
-        let texture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -261,8 +229,7 @@ impl State {
             size,
             window,
             depth_texture,
-            texture_pipeline,
-            object_pipeline,
+            main_pipeline,
             wireframe_pipeline,
             touch_state: Default::default(),
             earth_state,
@@ -292,7 +259,18 @@ impl State {
     pub fn update(&mut self) {
         self.earth_state.update(&self.queue, &self.device);
 
-        if let AnimationState::Animating = self.camera_state.update(&self.queue, self.delta) {
+        if self
+            .camera_state
+            .update(&self.queue, self.delta)
+            .is_animating()
+        {
+            self.window.request_redraw();
+        }
+
+        #[cfg(features = "debug")]
+        log::warn!("textures_loaded : {}", self.earth_state.textures_loaded);
+
+        if self.earth_state.textures_loaded {
             self.window.request_redraw();
         }
     }
@@ -331,40 +309,10 @@ impl State {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(&self.object_pipeline);
-
-            let mut indices = 0;
-
-            indices += self.camera_state.render(&mut render_pass);
-            indices += self.earth_state.render(&mut render_pass);
-
-            render_pass.draw_indexed(0..indices, 0, 0..1);
-        }
-        if false {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Texture render pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.1,
-                            a: 1.,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.),
+                        load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -373,7 +321,7 @@ impl State {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.texture_pipeline);
+            render_pass.set_pipeline(&self.main_pipeline);
 
             let mut indices = 0;
 
@@ -383,38 +331,38 @@ impl State {
             render_pass.draw_indexed(0..indices, 0, 0..1);
         }
 
-        // {
-        //     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        //         label: Some("Main render pass"),
-        //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-        //             view: &view,
-        //             resolve_target: None,
-        //             ops: wgpu::Operations {
-        //                 load: wgpu::LoadOp::Load,
-        //                 store: wgpu::StoreOp::Discard,
-        //             },
-        //         })],
-        //         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-        //             view: &self.depth_texture.view,
-        //             depth_ops: Some(wgpu::Operations {
-        //                 load: wgpu::LoadOp::Load,
-        //                 store: wgpu::StoreOp::Store,
-        //             }),
-        //             stencil_ops: None,
-        //         }),
-        //         occlusion_query_set: None,
-        //         timestamp_writes: None,
-        //     });
+        if self.render_wireframe {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Wireframe render"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
 
-        //     render_pass.set_pipeline(&self.wireframe_pipeline);
+            render_pass.set_pipeline(&self.wireframe_pipeline);
 
-        //     let mut indices = 0;
+            let mut indices = 0;
 
-        //     indices += self.camera_state.render(&mut render_pass);
-        //     indices += self.earth_state.render(&mut render_pass);
+            indices += self.camera_state.render(&mut render_pass);
+            indices += self.earth_state.render(&mut render_pass);
 
-        //     render_pass.draw_indexed(0..indices, 0, 0..1);
-        // }
+            render_pass.draw_indexed(0..indices, 0, 0..1);
+        }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

@@ -78,6 +78,9 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
     }
 
+
+
+    // return vec4<f32>(0.0, 0.0, lat, 1.0);
     discard;
 
     // instead of discard, write to buffer that this coordinate has no color.
@@ -101,7 +104,3 @@ fn fs_wireframe(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(in.pos, 1.0);
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(0., 0., 0., 0.);
-}

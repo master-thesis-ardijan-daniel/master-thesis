@@ -89,6 +89,13 @@ impl ApplicationHandler<CustomEvent> for App {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        if let Some(state) = &self.state {
+            // #[cfg(feature = "debug")]
+            // log::warn!("textures_loaded : {}", state.earth_state.textures_loaded);
+            if state.earth_state.textures_loaded {
+                state.window.request_redraw();
+            }
+        }
         match (event, &mut self.state) {
             (WindowEvent::RedrawRequested, Some(state)) => {
                 if let Some(v) = safe_get_subdivision_level() {

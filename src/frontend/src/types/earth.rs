@@ -32,6 +32,9 @@ pub struct EarthState {
     previous_output_as_lines: bool,
     current_output_as_lines: bool,
 
+    update_tile_buffer: bool,
+    pub textures_loaded: bool,
+
     num_vertices: u32,
     num_indices: u32,
     texture_buffer: wgpu::Texture,
@@ -133,6 +136,7 @@ impl EarthState {
 
     pub async fn fetch_tiles(&mut self) {
         self.tiles = get_tiles().await;
+        self.update_tile_buffer = true;
     }
 
     pub fn create(device: &Device) -> Self {
@@ -245,6 +249,8 @@ impl EarthState {
             index_buffer,
             previous_output_as_lines: false,
             current_output_as_lines: false,
+            update_tile_buffer: false,
+            textures_loaded: false,
             texture_bind_group_layout,
 
             icosphere,
@@ -279,8 +285,15 @@ impl EarthState {
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
+        if self.update_tile_buffer {
+            self.rewrite_tiles(queue);
+            self.update_tile_buffer = false;
+            self.textures_loaded = true;
+        }
+
         if self.current_subdivision_level == self.previous_subdivision_level
             && self.previous_output_as_lines == self.current_output_as_lines
+            && self.textures_loaded
         {
             return;
         }
@@ -312,8 +325,6 @@ impl EarthState {
             contents: bytemuck::cast_slice(&icosphere_faces),
             usage: BufferUsages::INDEX,
         });
-
-        self.rewrite_tiles(queue);
 
         self.previous_subdivision_level = self.current_subdivision_level;
         self.previous_output_as_lines = self.current_output_as_lines;
