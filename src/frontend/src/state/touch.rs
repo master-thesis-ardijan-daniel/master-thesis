@@ -5,7 +5,7 @@ use winit::event::{MouseScrollDelta, Touch, TouchPhase, WindowEvent};
 use super::State;
 
 #[derive(Default, Debug)]
-pub(super) struct TouchState {
+pub struct TouchState {
     touches: HashMap<u64, (f64, f64)>,
     distance: Option<f64>,
 }

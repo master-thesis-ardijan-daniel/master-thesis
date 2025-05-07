@@ -6,7 +6,6 @@ pub mod types;
 pub use state::*;
 mod app;
 pub mod camera;
-mod tiles;
 
 #[cfg(feature = "debug")]
 fn init_debug() {

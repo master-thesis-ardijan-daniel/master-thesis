@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
+use common::TileRef;
+use web_sys::ResponseType;
 use web_time::Duration;
+use wgpu::FragmentState;
 use winit::{
     application::ApplicationHandler,
     event::{StartCause, WindowEvent},
@@ -8,11 +11,22 @@ use winit::{
     window::WindowAttributes,
 };
 
-use crate::{safe_get_subdivision_level, types::PerformanceMetrics, State};
+use crate::{
+    camera::CameraState,
+    safe_get_subdivision_level,
+    types::{EarthState, PerformanceMetrics},
+    State,
+};
 
 #[derive(Debug)]
 pub enum CustomEvent {
     CreateState(State),
+    HttpResponse(CustomResponseType),
+}
+
+#[derive(Debug)]
+pub enum CustomResponseType {
+    StartupTileResponse(Vec<TileRef<[u8; 4]>>),
 }
 
 pub struct App {
@@ -58,10 +72,13 @@ impl ApplicationHandler<CustomEvent> for App {
                 ))
                 .expect("added canvas to map element");
 
-            let proxy = self.proxy.clone();
+            let proxy_eventloop = self.proxy.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                proxy
-                    .send_event(CustomEvent::CreateState(State::new(_window).await))
+                proxy_eventloop
+                    .clone()
+                    .send_event(CustomEvent::CreateState(
+                        State::new(_window, proxy_eventloop).await,
+                    ))
                     .unwrap();
             });
         }
@@ -89,13 +106,6 @@ impl ApplicationHandler<CustomEvent> for App {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
-        if let Some(state) = &self.state {
-            // #[cfg(feature = "debug")]
-            // log::warn!("textures_loaded : {}", state.earth_state.textures_loaded);
-            if state.earth_state.textures_loaded {
-                state.window.request_redraw();
-            }
-        }
         match (event, &mut self.state) {
             (WindowEvent::RedrawRequested, Some(state)) => {
                 if let Some(v) = safe_get_subdivision_level() {
@@ -144,10 +154,20 @@ impl ApplicationHandler<CustomEvent> for App {
 
     // Workaround because State::new needs to be async
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: CustomEvent) {
-        match event {
-            CustomEvent::CreateState(state) => {
+        match (event, &mut self.state) {
+            (CustomEvent::CreateState(state), None) => {
                 self.state = Some(state);
             }
+            (
+                CustomEvent::HttpResponse(CustomResponseType::StartupTileResponse(tiles)),
+                Some(state),
+            ) => {
+                state.earth_state.tiles = tiles;
+                state.earth_state.update_tile_buffer = true;
+                state.update();
+                state.window.request_redraw();
+            }
+            _ => {}
         }
     }
 }

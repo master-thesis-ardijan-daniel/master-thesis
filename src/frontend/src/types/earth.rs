@@ -1,6 +1,8 @@
 use std::{io::Write, sync::Arc};
 
 use common::{TileMetadata, TileRef};
+use geo::{coord, Rect};
+// use image::math::Rect;
 use wasm_bindgen::UnwrapThrowExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -10,8 +12,9 @@ use wgpu::{
     TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat,
     VertexStepMode,
 };
+use winit::event_loop::EventLoopProxy;
 
-use crate::tiles::get_tiles;
+use crate::app::CustomEvent;
 
 use super::{Icosphere, Point};
 
@@ -32,16 +35,17 @@ pub struct EarthState {
     previous_output_as_lines: bool,
     current_output_as_lines: bool,
 
-    update_tile_buffer: bool,
-    pub textures_loaded: bool,
+    pub update_tile_buffer: bool,
 
     num_vertices: u32,
     num_indices: u32,
     texture_buffer: wgpu::Texture,
     texture_bind_group: wgpu::BindGroup,
-    tiles: Vec<TileRef<[u8; 4]>>,
+    pub tiles: Vec<TileRef<[u8; 4]>>,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     tile_metadata_buffer: Buffer,
+    eventloop: EventLoopProxy<CustomEvent>,
+    finished_creation: bool,
 }
 
 impl EarthState {
@@ -134,12 +138,35 @@ impl EarthState {
         );
     }
 
-    pub async fn fetch_tiles(&mut self) {
-        self.tiles = get_tiles().await;
-        self.update_tile_buffer = true;
+    pub fn fetch_tiles(&self, url: String) {
+        // #[cfg(target_arch = "wasm32")]
+
+        {
+            let proxy = self.eventloop.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let raw_data = gloo_net::http::Request::get(&url)
+                    .query([("level", "1")])
+                    .send()
+                    .await
+                    .expect("Error, request failed! ");
+
+                #[cfg(feature = "debug")]
+                log::warn!("Tiles requested");
+
+                let tiles = raw_data
+                    .json()
+                    .await
+                    .expect("Unable to deserialize response, from tile request");
+                proxy
+                    .send_event(CustomEvent::HttpResponse(
+                        crate::app::CustomResponseType::StartupTileResponse(tiles),
+                    ))
+                    .unwrap();
+            });
+        }
     }
 
-    pub fn create(device: &Device) -> Self {
+    pub fn create(device: &Device, eventloop: EventLoopProxy<CustomEvent>) -> Self {
         let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
 
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
@@ -244,13 +271,19 @@ impl EarthState {
             ],
         });
 
+        let tiles = vec![TileRef {
+            data: vec![vec![[125u8; 4]; 256]; 256],
+            bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
+        }];
+
         Self {
+            eventloop,
             vertex_buffer,
             index_buffer,
             previous_output_as_lines: false,
             current_output_as_lines: false,
-            update_tile_buffer: false,
-            textures_loaded: false,
+            update_tile_buffer: true,
+            finished_creation: false,
             texture_bind_group_layout,
 
             icosphere,
@@ -261,7 +294,7 @@ impl EarthState {
             texture_buffer,
             texture_bind_group,
             tile_metadata_buffer,
-            tiles: vec![],
+            tiles,
         }
     }
 
@@ -285,15 +318,19 @@ impl EarthState {
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
+        if self.finished_creation == false {
+            self.finished_creation = true;
+            // the response handler will set self.update_tiles_buffer to true;
+            self.fetch_tiles("/tiles".to_string());
+        }
+
         if self.update_tile_buffer {
             self.rewrite_tiles(queue);
             self.update_tile_buffer = false;
-            self.textures_loaded = true;
         }
 
         if self.current_subdivision_level == self.previous_subdivision_level
             && self.previous_output_as_lines == self.current_output_as_lines
-            && self.textures_loaded
         {
             return;
         }

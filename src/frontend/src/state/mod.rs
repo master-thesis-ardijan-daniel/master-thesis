@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use crate::{camera::CameraState, types::earth::EarthState};
+use crate::{app::CustomEvent, camera::CameraState, types::earth::EarthState};
 use depth_texture::DepthTexture;
 use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
-use winit::window::Window;
+use winit::{event_loop::EventLoopProxy, window::Window};
 
 mod depth_texture;
 mod input;
@@ -16,15 +16,6 @@ pub enum AnimationState {
     Finished,
 }
 
-impl AnimationState {
-    pub fn is_animating(&self) -> bool {
-        match self {
-            AnimationState::Animating => true,
-            _ => false,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct State {
     pub surface: wgpu::Surface<'static>,
@@ -33,22 +24,22 @@ pub struct State {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: Arc<Window>,
-    // pub texture_pipeline: wgpu::RenderPipeline,
+    pub texture_pipeline: wgpu::RenderPipeline,
     pub wireframe_pipeline: wgpu::RenderPipeline,
-    render_wireframe: bool,
+    pub render_wireframe: bool,
 
-    touch_state: TouchState,
+    pub touch_state: TouchState,
 
     pub camera_state: CameraState,
     pub earth_state: EarthState,
 
     pub delta: Duration,
-    depth_texture: DepthTexture,
-    main_pipeline: wgpu::RenderPipeline,
+    pub eventloop: EventLoopProxy<CustomEvent>,
+    pub depth_texture: DepthTexture,
 }
 
 impl State {
-    pub async fn new(window: Arc<Window>) -> State {
+    pub async fn new(window: Arc<Window>, eventloop: EventLoopProxy<CustomEvent>) -> State {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -113,13 +104,11 @@ impl State {
         };
 
         let camera_state = CameraState::create(&device, &size);
-        let mut earth_state = EarthState::create(&device);
+        let earth_state = EarthState::create(&device, eventloop.clone());
         let depth_texture = DepthTexture::create(&device, &config);
 
-        earth_state.fetch_tiles().await;
-
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
+            label: Some("Main Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_state.bind_group_layout,
                 &earth_state.texture_bind_group_layout,
@@ -127,8 +116,8 @@ impl State {
             push_constant_ranges: &[],
         });
 
-        let main_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Object Pipeline"),
+        let texture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -222,6 +211,7 @@ impl State {
         });
 
         Self {
+            eventloop,
             surface,
             device,
             queue,
@@ -229,7 +219,7 @@ impl State {
             size,
             window,
             depth_texture,
-            main_pipeline,
+            texture_pipeline,
             wireframe_pipeline,
             touch_state: Default::default(),
             earth_state,
@@ -259,18 +249,7 @@ impl State {
     pub fn update(&mut self) {
         self.earth_state.update(&self.queue, &self.device);
 
-        if self
-            .camera_state
-            .update(&self.queue, self.delta)
-            .is_animating()
-        {
-            self.window.request_redraw();
-        }
-
-        #[cfg(features = "debug")]
-        log::warn!("textures_loaded : {}", self.earth_state.textures_loaded);
-
-        if self.earth_state.textures_loaded {
+        if let AnimationState::Animating = self.camera_state.update(&self.queue, self.delta) {
             self.window.request_redraw();
         }
     }
@@ -301,9 +280,9 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.02,
-                            g: 0.02,
-                            b: 0.02,
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.1,
                             a: 1.,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -321,7 +300,7 @@ impl State {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.main_pipeline);
+            render_pass.set_pipeline(&self.texture_pipeline);
 
             let mut indices = 0;
 
