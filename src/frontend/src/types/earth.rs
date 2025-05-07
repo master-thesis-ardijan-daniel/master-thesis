@@ -1,9 +1,6 @@
-use std::{io::Write, sync::Arc};
-
 use common::{TileMetadata, TileRef};
 use geo::{coord, Rect};
 // use image::math::Rect;
-use wasm_bindgen::UnwrapThrowExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -21,7 +18,7 @@ use super::{Icosphere, Point};
 const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
 
-const TEXTURE_ATLAS_SIZE: u32 = 2048;
+// const TEXTURE_ATLAS_SIZE: u32 = 2048;
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -54,9 +51,6 @@ impl EarthState {
     // need to make sure we sample withing width and height
 
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
-        // Write the tile metadata as an array
-        // todo!();
-        //
         let mut texture_data: Vec<u8> =
             Vec::with_capacity(self.tiles.len() * (TEXTURE_WIDTH * TEXTURE_HEIGHT * 4) as usize);
 
@@ -72,13 +66,13 @@ impl EarthState {
         let tile_metadata = self
             .tiles
             .iter()
-            .map(|x| TileMetadata::from(x))
+            .map(TileMetadata::from)
             .collect::<Vec<_>>();
 
         queue.write_buffer(
             &self.tile_metadata_buffer,
             0,
-            &bytemuck::cast_slice(&tile_metadata),
+            bytemuck::cast_slice(&tile_metadata),
         );
 
         queue.write_texture(
@@ -318,7 +312,7 @@ impl EarthState {
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
-        if self.finished_creation == false {
+        if !self.finished_creation {
             self.finished_creation = true;
             // the response handler will set self.update_tiles_buffer to true;
             self.fetch_tiles("/tiles".to_string());

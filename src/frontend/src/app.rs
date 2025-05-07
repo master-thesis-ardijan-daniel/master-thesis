@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use common::TileRef;
-use web_sys::ResponseType;
 use web_time::Duration;
-use wgpu::FragmentState;
 use winit::{
     application::ApplicationHandler,
     event::{StartCause, WindowEvent},
@@ -11,12 +9,7 @@ use winit::{
     window::WindowAttributes,
 };
 
-use crate::{
-    camera::CameraState,
-    safe_get_subdivision_level,
-    types::{EarthState, PerformanceMetrics},
-    State,
-};
+use crate::{safe_get_subdivision_level, types::PerformanceMetrics, State};
 
 #[derive(Debug)]
 pub enum CustomEvent {
@@ -32,17 +25,8 @@ pub enum CustomResponseType {
 pub struct App {
     state: Option<State>,
     perf_metrics: PerformanceMetrics,
-    proxy: EventLoopProxy<CustomEvent>,
-}
-
-impl App {
-    pub fn new(proxy: EventLoopProxy<CustomEvent>) -> Self {
-        Self {
-            perf_metrics: PerformanceMetrics::new(),
-            state: None,
-            proxy,
-        }
-    }
+    #[allow(dead_code)]
+    proxy_eventloop: EventLoopProxy<CustomEvent>,
 }
 
 impl ApplicationHandler<CustomEvent> for App {
@@ -72,7 +56,7 @@ impl ApplicationHandler<CustomEvent> for App {
                 ))
                 .expect("added canvas to map element");
 
-            let proxy_eventloop = self.proxy.clone();
+            let proxy_eventloop = self.proxy_eventloop.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 proxy_eventloop
                     .clone()
