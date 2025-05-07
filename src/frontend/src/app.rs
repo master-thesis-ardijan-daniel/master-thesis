@@ -29,6 +29,16 @@ pub struct App {
     proxy_eventloop: EventLoopProxy<CustomEvent>,
 }
 
+impl App {
+    pub fn new(proxy: EventLoopProxy<CustomEvent>) -> Self {
+        Self {
+            state: None,
+            perf_metrics: PerformanceMetrics::new(),
+            proxy_eventloop: proxy,
+        }
+    }
+}
+
 impl ApplicationHandler<CustomEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = WindowAttributes::default()
