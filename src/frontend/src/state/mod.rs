@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use crate::{camera::CameraState, types::earth::EarthState};
+use crate::{app::CustomEvent, camera::CameraState, types::earth::EarthState};
+use depth_texture::DepthTexture;
 use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
-use winit::window::Window;
+use winit::{event_loop::EventLoopProxy, window::Window};
 
+mod depth_texture;
 mod input;
 mod touch;
 
@@ -24,18 +26,20 @@ pub struct State {
     pub window: Arc<Window>,
     pub texture_pipeline: wgpu::RenderPipeline,
     pub wireframe_pipeline: wgpu::RenderPipeline,
-    render_wireframe: bool,
+    pub render_wireframe: bool,
 
-    touch_state: TouchState,
+    pub touch_state: TouchState,
 
     pub camera_state: CameraState,
     pub earth_state: EarthState,
 
     pub delta: Duration,
+    pub eventloop: EventLoopProxy<CustomEvent>,
+    pub depth_texture: DepthTexture,
 }
 
 impl State {
-    pub async fn new(window: Arc<Window>) -> State {
+    pub async fn new(window: Arc<Window>, eventloop: EventLoopProxy<CustomEvent>) -> State {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -100,10 +104,11 @@ impl State {
         };
 
         let camera_state = CameraState::create(&device, &size);
-        let earth_state = EarthState::create(&device);
+        let earth_state = EarthState::create(&device, eventloop.clone());
+        let depth_texture = DepthTexture::create(&device, &config);
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
+            label: Some("Main Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_state.bind_group_layout,
                 &earth_state.texture_bind_group_layout,
@@ -122,7 +127,7 @@ impl State {
             },
             fragment: Some(FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_tiles"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState {
@@ -142,7 +147,13 @@ impl State {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DepthTexture::DEPTH_TEXTURE_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -183,7 +194,13 @@ impl State {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DepthTexture::DEPTH_TEXTURE_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -194,12 +211,14 @@ impl State {
         });
 
         Self {
+            eventloop,
             surface,
             device,
             queue,
             config,
             size,
             window,
+            depth_texture,
             texture_pipeline,
             wireframe_pipeline,
             touch_state: Default::default(),
@@ -223,6 +242,7 @@ impl State {
             self.camera_state
                 .controller
                 .resize(new_size.width, new_size.height);
+            self.depth_texture = DepthTexture::create(&self.device, &self.config);
         }
     }
 
@@ -260,24 +280,60 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.01,
-                            g: 0.01,
-                            b: 0.01,
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.1,
                             a: 1.,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
 
-            if self.render_wireframe {
-                render_pass.set_pipeline(&self.wireframe_pipeline);
-            } else {
-                render_pass.set_pipeline(&self.texture_pipeline);
-            }
+            render_pass.set_pipeline(&self.texture_pipeline);
+
+            let mut indices = 0;
+
+            indices += self.camera_state.render(&mut render_pass);
+            indices += self.earth_state.render(&mut render_pass);
+
+            render_pass.draw_indexed(0..indices, 0, 0..1);
+        }
+
+        if self.render_wireframe {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Wireframe render"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.wireframe_pipeline);
 
             let mut indices = 0;
 
