@@ -362,6 +362,6 @@ impl State {
     }
 
     pub fn post_render(&mut self) {
-        self.earth_state.post_render();
+        self.earth_state.post_render(&self.device);
     }
 }

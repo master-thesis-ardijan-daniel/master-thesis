@@ -21,7 +21,7 @@ const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
 // const TEXTURE_ATLAS_SIZE: u32 = 2048;
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct MissingArea {
     pub max_lat: f32,
     pub max_lon: f32,
@@ -64,7 +64,8 @@ pub struct EarthState {
     eventloop: EventLoopProxy<CustomEvent>,
     finished_creation: bool,
     tile_visiblity_buffer: Buffer,
-    area_missing_textures: Buffer,
+    area_missing_textures_buffer: Buffer,
+    area_missing_textures: MissingArea,
     clearing_buffer_area_missing_textures: Buffer,
 }
 
@@ -245,6 +246,7 @@ impl EarthState {
         let tiles = vec![TileRef {
             data: vec![vec![[125u8; 4]; 256]; 256],
             bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
+            visible: None,
         }];
 
         Self {
@@ -256,7 +258,7 @@ impl EarthState {
             update_tile_buffer: true,
             finished_creation: false,
             tile_visiblity_buffer,
-            area_missing_textures,
+            area_missing_textures_buffer: area_missing_textures,
             clearing_buffer_area_missing_textures,
             texture_bind_group_layout,
 
@@ -269,6 +271,7 @@ impl EarthState {
             texture_bind_group,
             tile_metadata_buffer,
             tiles,
+            area_missing_textures: MissingArea::new(),
         }
     }
 
@@ -454,6 +457,16 @@ impl EarthState {
         self.previous_output_as_lines = self.current_output_as_lines;
     }
 
+    pub fn pre_render(&self, _queue: &Queue, encoder: &mut CommandEncoder) {
+        encoder.copy_buffer_to_buffer(
+            &self.clearing_buffer_area_missing_textures,
+            0,
+            &self.area_missing_textures_buffer,
+            0,
+            size_of::<MissingArea>() as u64,
+        );
+    }
+
     pub fn render(&self, render_pass: &mut RenderPass<'_>) -> u32 {
         render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -462,14 +475,39 @@ impl EarthState {
         self.num_indices
     }
 
-    pub fn pre_render(&self, _queue: &Queue, encoder: &mut CommandEncoder) {
-        encoder.copy_buffer_to_buffer(
-            &self.clearing_buffer_area_missing_textures,
-            0,
-            &self.area_missing_textures,
-            0,
-            size_of::<MissingArea>() as u64,
-        );
+    pub fn post_render(&mut self, device: &Device) {
+        device.poll(wgpu::Maintain::Poll);
+
+        let tile_visibility_data = self.tile_visiblity_buffer.slice(..);
+        let area_missing_textures_data = self.area_missing_textures_buffer.slice(..);
+        tile_visibility_data.map_async(wgpu::MapMode::Read, |_| {});
+        area_missing_textures_data.map_async(wgpu::MapMode::Read, |_| {});
+        device.poll(wgpu::Maintain::Wait); // Ensure map is resolved
+
+        let raw_tile_visibility_data;
+        let raw_area_missing_textures_data;
+
+        {
+            // this makes sure the data is copied and the mappings are dropped
+            raw_tile_visibility_data = tile_visibility_data.get_mapped_range().to_vec();
+            raw_area_missing_textures_data = area_missing_textures_data.get_mapped_range().to_vec();
+            self.tile_visiblity_buffer.unmap();
+            self.area_missing_textures_buffer.unmap();
+        }
+
+        for (i, v) in raw_tile_visibility_data.iter().enumerate() {
+            self.tiles[i].visible = Some(*v > 0);
+        }
+
+        if let Ok(data) = bytemuck::try_cast_slice(&raw_area_missing_textures_data) {
+            self.area_missing_textures = data[0];
+        }
+
+        #[cfg(feature = "debug")]
+        {
+            log::warn!("area_missing: {:#?}", self.area_missing_textures);
+            log::warn!("tile_visiblity: {:#?}", raw_tile_visibility_data);
+        }
     }
 }
 

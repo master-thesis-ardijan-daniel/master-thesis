@@ -14,6 +14,7 @@ pub struct Coordinate {
 pub struct TileRef<T> {
     pub data: Tile<T>,
     pub bounds: Bounds,
+    pub visible: Option<bool>,
 }
 
 #[repr(C)]
