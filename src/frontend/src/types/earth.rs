@@ -1,4 +1,4 @@
-use common::{TileMetadata, TileRef};
+use common::{TileMetadata, TileResponse};
 use geo::{coord, Rect};
 // use image::math::Rect;
 use wgpu::{
@@ -38,7 +38,7 @@ pub struct EarthState {
     num_indices: u32,
     texture_buffer: wgpu::Texture,
     texture_bind_group: wgpu::BindGroup,
-    pub tiles: Vec<TileRef<[u8; 4]>>,
+    pub tiles: Vec<TileResponse<[u8; 4]>>,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     tile_metadata_buffer: Buffer,
     eventloop: EventLoopProxy<CustomEvent>,
@@ -98,7 +98,7 @@ impl EarthState {
 
     pub fn write_a_single_tile_to_buffer(
         &mut self,
-        new_tile: TileRef<[u8; 4]>,
+        new_tile: TileResponse<[u8; 4]>,
         layer: u32,
         queue: Queue,
     ) {
@@ -265,7 +265,7 @@ impl EarthState {
             ],
         });
 
-        let tiles = vec![TileRef {
+        let tiles = vec![TileResponse {
             data: vec![vec![[125u8; 4]; 256]; 256],
             bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
         }];

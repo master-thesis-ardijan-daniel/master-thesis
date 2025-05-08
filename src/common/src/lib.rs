@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Bounds = geo::Rect<f32>;
 pub type Tile<T> = Vec<Vec<T>>;
+pub type TileRef<'a, T> = Vec<&'a [T]>;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Coordinate {
@@ -11,8 +12,14 @@ pub struct Coordinate {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TileRef<T> {
+pub struct TileResponse<T> {
     pub data: Tile<T>,
+    pub bounds: Bounds,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TileRefResponse<'a, T> {
+    pub data: TileRef<'a, T>,
     pub bounds: Bounds,
 }
 
@@ -29,7 +36,7 @@ pub struct TileMetadata {
     pub pad_2: u32,
 }
 
-impl<T> TileRef<T>
+impl<T> TileResponse<T>
 where
     T: Clone + Zeroable,
 {
@@ -48,8 +55,8 @@ where
     }
 }
 
-impl<T> From<&TileRef<T>> for TileMetadata {
-    fn from(tile: &TileRef<T>) -> Self {
+impl<T> From<&TileResponse<T>> for TileMetadata {
+    fn from(tile: &TileResponse<T>) -> Self {
         Self {
             nw_lat: tile.bounds.max().y,
             nw_lon: tile.bounds.min().x,
