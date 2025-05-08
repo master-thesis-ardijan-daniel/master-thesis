@@ -306,6 +306,7 @@ name = "backend"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "bytemuck",
  "common",
  "geo",
  "image",
