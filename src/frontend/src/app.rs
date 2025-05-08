@@ -110,6 +110,7 @@ impl ApplicationHandler<CustomEvent> for App {
 
                 self.perf_metrics.time_new_frame();
                 self.perf_metrics.send_perf_event();
+                state.pre_render();
 
                 match state.render() {
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

@@ -259,6 +259,18 @@ impl State {
         self.earth_state.set_output_to_lines(render_as_wireframe);
     }
 
+    pub fn pre_render(&mut self) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pre render encoder"),
+            });
+
+        self.earth_state.pre_render(&self.queue, &mut encoder);
+
+        self.queue.submit(Some(encoder.finish()));
+    }
+
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
 
@@ -346,6 +358,10 @@ impl State {
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
-        Ok(())
+        Ok(self.post_render())
+    }
+
+    pub fn post_render(&mut self) {
+        self.earth_state.post_render();
     }
 }

@@ -67,6 +67,8 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
             // return vec4<f32>(0.0, 0.0, lat, 1.0);
         }
 
+        // Needs to change in order to handle wrapping cases,
+        // where the tile is on top of north pole for example
         let u = (lon - nw_lon) / (se_lon - nw_lon);
         let v = (lat - se_lat) / ( nw_lat - se_lat);
 

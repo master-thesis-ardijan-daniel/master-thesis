@@ -3,8 +3,8 @@ use geo::{coord, Rect};
 // use image::math::Rect;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
-    Origin3d, Queue, RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout,
+    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandEncoder, Device,
+    Extent3d, Origin3d, Queue, RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout,
     TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat,
     VertexStepMode,
@@ -19,6 +19,26 @@ const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
 
 // const TEXTURE_ATLAS_SIZE: u32 = 2048;
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct MissingArea {
+    pub max_lat: f32,
+    pub max_lon: f32,
+    pub min_lat: f32,
+    pub min_lon: f32,
+}
+
+impl MissingArea {
+    fn new() -> Self {
+        MissingArea {
+            max_lat: f32::MIN,
+            max_lon: f32::MIN,
+            min_lat: f32::MAX,
+            min_lon: f32::MAX,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -43,9 +63,215 @@ pub struct EarthState {
     tile_metadata_buffer: Buffer,
     eventloop: EventLoopProxy<CustomEvent>,
     finished_creation: bool,
+    tile_visiblity_buffer: Buffer,
+    area_missing_textures: Buffer,
+    clearing_buffer_area_missing_textures: Buffer,
 }
 
 impl EarthState {
+    pub fn create(device: &Device, eventloop: EventLoopProxy<CustomEvent>) -> Self {
+        let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
+
+        let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("tile_metadata_buffer"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            size: size_of::<TileMetadata>() as u64 * 32,
+            mapped_at_creation: false,
+        });
+
+        let texture_size = wgpu::Extent3d {
+            width: TEXTURE_WIDTH,
+            height: TEXTURE_HEIGHT,
+            depth_or_array_layers: 32,
+        };
+
+        let tile_visiblity_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Tile_visibility_buffer"),
+            usage: BufferUsages::UNIFORM | BufferUsages::MAP_READ,
+            size: size_of::<bool>() as u64 * 1000, // The max proable number of tiles we will have
+            mapped_at_creation: false,
+        });
+
+        let area_missing_textures = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("area_missing_textures buffer"),
+            contents: bytemuck::cast_slice(&[MissingArea::new()]),
+            usage: BufferUsages::UNIFORM | BufferUsages::MAP_READ,
+        });
+        let clearing_buffer_area_missing_textures =
+            device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Clearing buffer for area_missing_textures buffer"),
+                contents: bytemuck::cast_slice(&[MissingArea::new()]),
+                usage: BufferUsages::UNIFORM | BufferUsages::MAP_READ,
+            });
+
+        let texture_buffer = device.create_texture(&TextureDescriptor {
+            label: Some("earth_texture_buffer"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let diffuse_texture_view = texture_buffer.create_view(&TextureViewDescriptor::default());
+        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // Initializing empty buffers is fine,
+        // since we initialize new ones on update
+        let vertex_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("earth_vertex_buffer"),
+            size: 0,
+            usage: BufferUsages::VERTEX,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("earth_index_buffer"),
+            size: 0,
+            usage: wgpu::BufferUsages::INDEX,
+            mapped_at_creation: false,
+        });
+
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("earth_related_stuff"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        // Earth texture
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // Earth texture sampler
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // Tile metadata
+                        binding: 2,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // Tile visiblity
+                        binding: 3,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // Clearing buffer for MissingArea
+                        binding: 4,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // MissingArea
+                        binding: 5,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("earth_texture_diffuse_bind_group"),
+            layout: &texture_bind_group_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: tile_metadata_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: tile_visiblity_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: area_missing_textures.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: clearing_buffer_area_missing_textures.as_entire_binding(),
+                },
+            ],
+        });
+
+        let tiles = vec![TileRef {
+            data: vec![vec![[125u8; 4]; 256]; 256],
+            bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
+        }];
+
+        Self {
+            eventloop,
+            vertex_buffer,
+            index_buffer,
+            previous_output_as_lines: false,
+            current_output_as_lines: false,
+            update_tile_buffer: true,
+            finished_creation: false,
+            tile_visiblity_buffer,
+            area_missing_textures,
+            clearing_buffer_area_missing_textures,
+            texture_bind_group_layout,
+
+            icosphere,
+            previous_subdivision_level: 1,
+            current_subdivision_level: 0,
+            num_vertices: 0,
+            num_indices: 0,
+            texture_buffer,
+            texture_bind_group,
+            tile_metadata_buffer,
+            tiles,
+        }
+    }
+
     // The shader code needs to loop over each of the tiles in order to check if any of them have anything it should sample
     // if so, we sample from the respective tile
     // need to make sure we sample withing width and height
@@ -159,139 +385,6 @@ impl EarthState {
             });
         }
     }
-
-    pub fn create(device: &Device, eventloop: EventLoopProxy<CustomEvent>) -> Self {
-        let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
-
-        let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("tile_metadata_buffer"),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64 * 32,
-            mapped_at_creation: false,
-        });
-
-        let texture_size = wgpu::Extent3d {
-            width: TEXTURE_WIDTH,
-            height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 32,
-        };
-        let texture_buffer = device.create_texture(&TextureDescriptor {
-            label: Some("earth_texture_buffer"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let diffuse_texture_view = texture_buffer.create_view(&TextureViewDescriptor::default());
-        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        // Initializing empty buffers is fine,
-        // since we initialize new ones on update
-        let vertex_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("earth_vertex_buffer"),
-            size: 0,
-            usage: BufferUsages::VERTEX,
-            mapped_at_creation: false,
-        });
-
-        let index_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("earth_index_buffer"),
-            size: 0,
-            usage: wgpu::BufferUsages::INDEX,
-            mapped_at_creation: false,
-        });
-
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("earth_texture_bind_group"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2Array,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("earth_texture_diffuse_bind_group"),
-            layout: &texture_bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: tile_metadata_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        let tiles = vec![TileRef {
-            data: vec![vec![[125u8; 4]; 256]; 256],
-            bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
-        }];
-
-        Self {
-            eventloop,
-            vertex_buffer,
-            index_buffer,
-            previous_output_as_lines: false,
-            current_output_as_lines: false,
-            update_tile_buffer: true,
-            finished_creation: false,
-            texture_bind_group_layout,
-
-            icosphere,
-            previous_subdivision_level: 1,
-            current_subdivision_level: 0,
-            num_vertices: 0,
-            num_indices: 0,
-            texture_buffer,
-            texture_bind_group,
-            tile_metadata_buffer,
-            tiles,
-        }
-    }
-
     pub fn descriptor() -> VertexBufferLayout<'static> {
         VertexBufferLayout {
             array_stride: std::mem::size_of::<[f32; 3]>() as BufferAddress,
@@ -367,6 +460,16 @@ impl EarthState {
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
         self.num_indices
+    }
+
+    pub fn pre_render(&self, _queue: &Queue, encoder: &mut CommandEncoder) {
+        encoder.copy_buffer_to_buffer(
+            &self.clearing_buffer_area_missing_textures,
+            0,
+            &self.area_missing_textures,
+            0,
+            size_of::<MissingArea>() as u64,
+        );
     }
 }
 
