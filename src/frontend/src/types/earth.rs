@@ -13,7 +13,7 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::app::CustomEvent;
 
-use super::{Icosphere, Point};
+use super::{Icosphere, Point, WebGLReadWriteBuffers};
 
 const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
@@ -63,10 +63,8 @@ pub struct EarthState {
     tile_metadata_buffer: Buffer,
     eventloop: EventLoopProxy<CustomEvent>,
     finished_creation: bool,
-    tile_visiblity_buffer: Buffer,
-    area_missing_textures_buffer: Buffer,
-    area_missing_textures: MissingArea,
-    clearing_buffer_area_missing_textures: Buffer,
+    area_missing_textures_buffer: WebGLReadWriteBuffers,
+    tile_visibility_buffer: WebGLReadWriteBuffers,
 }
 
 impl EarthState {
@@ -85,25 +83,6 @@ impl EarthState {
             height: TEXTURE_HEIGHT,
             depth_or_array_layers: 32,
         };
-
-        let tile_visiblity_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Tile_visibility_buffer"),
-            usage: BufferUsages::UNIFORM | BufferUsages::MAP_READ,
-            size: size_of::<bool>() as u64 * 1000, // The max proable number of tiles we will have
-            mapped_at_creation: false,
-        });
-
-        let area_missing_textures = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("area_missing_textures buffer"),
-            contents: bytemuck::cast_slice(&[MissingArea::new()]),
-            usage: BufferUsages::UNIFORM | BufferUsages::MAP_READ,
-        });
-        let clearing_buffer_area_missing_textures =
-            device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("Clearing buffer for area_missing_textures buffer"),
-                contents: bytemuck::cast_slice(&[MissingArea::new()]),
-                usage: BufferUsages::UNIFORM | BufferUsages::MAP_READ,
-            });
 
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),
@@ -176,39 +155,6 @@ impl EarthState {
                         },
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        // Tile visiblity
-                        binding: 3,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        // Clearing buffer for MissingArea
-                        binding: 4,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        // MissingArea
-                        binding: 5,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             });
 
@@ -228,18 +174,6 @@ impl EarthState {
                     binding: 2,
                     resource: tile_metadata_buffer.as_entire_binding(),
                 },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: tile_visiblity_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: area_missing_textures.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: clearing_buffer_area_missing_textures.as_entire_binding(),
-                },
             ],
         });
 
@@ -249,6 +183,14 @@ impl EarthState {
             visible: None,
         }];
 
+        let tile_visibility_buffer =
+            WebGLReadWriteBuffers::create(&device, "Tile visibility", 1000, false);
+        let area_missing_textures_buffer = WebGLReadWriteBuffers::create(
+            &device,
+            "Area missing textures",
+            size_of::<MissingArea>() as u64,
+            true,
+        );
         Self {
             eventloop,
             vertex_buffer,
@@ -257,9 +199,6 @@ impl EarthState {
             current_output_as_lines: false,
             update_tile_buffer: true,
             finished_creation: false,
-            tile_visiblity_buffer,
-            area_missing_textures_buffer: area_missing_textures,
-            clearing_buffer_area_missing_textures,
             texture_bind_group_layout,
 
             icosphere,
@@ -271,7 +210,8 @@ impl EarthState {
             texture_bind_group,
             tile_metadata_buffer,
             tiles,
-            area_missing_textures: MissingArea::new(),
+            tile_visibility_buffer,
+            area_missing_textures_buffer,
         }
     }
 
@@ -458,13 +398,7 @@ impl EarthState {
     }
 
     pub fn pre_render(&self, _queue: &Queue, encoder: &mut CommandEncoder) {
-        encoder.copy_buffer_to_buffer(
-            &self.clearing_buffer_area_missing_textures,
-            0,
-            &self.area_missing_textures_buffer,
-            0,
-            size_of::<MissingArea>() as u64,
-        );
+        self.area_missing_textures_buffer.clear_buffer(encoder);
     }
 
     pub fn render(&self, render_pass: &mut RenderPass<'_>) -> u32 {
