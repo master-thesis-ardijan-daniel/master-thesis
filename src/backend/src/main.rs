@@ -4,10 +4,16 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use backend::{Bounds, GeoTree};
+use backend::{
+    deserialize::Deserialize as _, serialize::Serialize as _, Bounds, GeoTree, TileNode,
+};
 use geo::Coord;
 use serde::Deserialize;
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    io::{Read, Seek, Write},
+    net::SocketAddr,
+    sync::{atomic::AtomicUsize, Arc},
+};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use world::EarthmapDataset;
 
@@ -19,6 +25,36 @@ async fn main() {
         let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
         GeoTree::build(&data)
     };
+
+    let mut writer = std::fs::File::create("test.db").unwrap();
+    tree.root.serialize(&mut writer).unwrap();
+    drop(writer);
+
+    let mut reader = std::fs::File::open("test.db").unwrap();
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).unwrap();
+
+    let reader = backend::deserialize::Reader {
+        inner: &bytes,
+        position: AtomicUsize::new(0),
+    };
+
+    let node: backend::deserialize::TileNode<[u8; 4]> = reader.read();
+    println!("node: {:#?}", node.bounds);
+
+    let node: backend::deserialize::TileData<[u8; 4]> = reader.read();
+    println!(
+        "read data: {:#?} {:#?}",
+        node.aggregate,
+        node.tile.map(|r| r.len())
+    );
+
+    // let node: backend::deserialize::TileNode<[u8; 4]> = reader.read();
+    // println!("node: {:#?}", node.bounds);
+    // let child: backend::deserialize::TileNode<[u8; 4]> = reader.load(&node.children[0][0]);
+    // println!("node: {:#?}", child.bounds);
+
+    return;
 
     let state = BackendState {
         image_tree: Arc::new(tree),

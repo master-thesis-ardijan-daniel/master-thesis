@@ -1,5 +1,6 @@
 use std::{
-    collections::VecDeque,
+    borrow::Cow,
+    collections::{HashMap, VecDeque},
     io::{Result, Write},
 };
 
@@ -24,66 +25,56 @@ where
     where
         W: Write,
     {
-        // let mut bytes_written = 0;
-
-        // let mut pointers = Vec::with_capacity(self.children.len());
-
-        // for child in self.children.iter().flatten() {
-        //     pointers.push(bytes_written);
-        //     bytes_written += Serialize::serialize(child, writer)?;
-        // }
-
-        // bytes_written += Serialize::serialize(&self.bounds, writer)?;
-        // bytes_written += Serialize::serialize(&pointers, writer)?;
-
-        // bytes_written +=
-        //     <Option<&&T> as Serialize>::serialize(&self.aggregate.as_ref().as_ref(), writer)?;
-        // bytes_written +=
-        //     <Option<&Vec<Vec<T>>> as Serialize>::serialize(&self.data.as_ref(), writer)?;
-
-        // Ok(bytes_written)
-        //
-
-        struct NodeInfo<'a, T> {
-            node: &'a TileNode<T>,
-            offset: usize,
-        }
-
-        let mut sink = std::io::sink();
-
         let mut queue = VecDeque::new();
-        let mut offset_info = Vec::new();
-
         queue.push_back(self);
 
-        let mut pointer = 0;
+        let mut written = HashMap::<usize, usize>::new();
+        let mut sink = std::io::sink();
+
         while let Some(node) = queue.pop_front() {
-            let info = NodeInfo {
-                node,
-                offset: pointer,
+            let wrote = {
+                let mut bytes_written = 0;
+
+                bytes_written += node.bounds.serialize(&mut sink)?;
+                bytes_written += vec![0_usize; node.children.len()].serialize(&mut sink)?;
+                bytes_written += node.aggregate.as_ref().as_ref().serialize(&mut sink)?;
+                bytes_written += node.data.as_ref().serialize(&mut sink)?;
+
+                bytes_written
             };
 
-            pointer += node.serialize(&mut sink)?;
+            written.insert(node as *const _ as usize, wrote);
 
             for child in node.children.iter().flatten() {
                 queue.push_back(child);
             }
-
-            offset_info.push(info);
         }
 
-        let mut i = 0;
-        while i < offset_info.len() {
-            let node = offset_info[i].node;
+        let mut queue = VecDeque::new();
+        queue.push_back(self);
 
-            for child in node.children.iter().flatten() {
-                let info = offset_info
-                    .iter()
-                    .find(|node| std::ptr::eq(node.node as *const _, child as *const _));
-            }
+        let mut bytes_written = 0;
+
+        while let Some(node) = queue.pop_front() {
+            bytes_written += node.bounds.serialize(writer)?;
+
+            let children = node
+                .children
+                .iter()
+                .map(|i| {
+                    i.iter()
+                        .map(|j| written[&(j as *const _ as usize)])
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            bytes_written += (&children).serialize(writer)?;
+
+            bytes_written += node.aggregate.as_ref().as_ref().serialize(writer)?;
+            bytes_written += dbg!(node.data.as_ref().serialize(writer)?);
         }
 
-        todo!()
+        Ok(bytes_written)
     }
 }
 
@@ -137,14 +128,16 @@ where
 
         match self {
             Some(inner) => {
-                writer.write_all(&[0])?;
-                bytes_written += 1;
+                let bytes = bytemuck::bytes_of(&1_usize);
+                writer.write_all(bytes)?;
+                bytes_written += bytes.len();
 
                 bytes_written += inner.serialize(writer)?;
             }
             _ => {
-                writer.write_all(&[1])?;
-                bytes_written += 1;
+                let bytes = bytemuck::bytes_of(&0_usize);
+                writer.write_all(bytes)?;
+                bytes_written += bytes.len();
             }
         }
 
@@ -232,7 +225,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::deserialize::Deserialize;
+    use crate::deserialize::{Deserialize, Pointer};
 
     use super::*;
     use bytemuck::{Pod, Zeroable};
@@ -286,5 +279,23 @@ mod tests {
         println!("Round trip, len: {}", rt.len());
 
         assert_eq!(rt[19][50].b, 50);
+    }
+
+    #[test]
+    fn transmute_pointer() {
+        let p = (0..100).collect::<Vec<usize>>();
+
+        let p: &[Pointer<()>] = bytemuck::cast_slice(&p);
+
+        assert_eq!(p[90].position, 90);
+    }
+
+    #[test]
+    fn read_usize() {
+        let bytes = [0, 1, 0, 0, 0, 0, 0, 0];
+
+        let p = *bytemuck::from_bytes::<usize>(&bytes);
+
+        assert_eq!(p, 256);
     }
 }

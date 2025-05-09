@@ -311,6 +311,7 @@ dependencies = [
  "geo",
  "image",
  "itertools 0.14.0",
+ "memmap2",
  "serde",
  "tokio",
  "tower-http",

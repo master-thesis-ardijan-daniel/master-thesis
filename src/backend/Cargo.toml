@@ -17,3 +17,4 @@ geo = { version = "*", features = ["use-serde"] }
 image = { version = "*", features = ["serde"] }
 itertools= "0.14"
 common = { path="../common" }
+memmap2 = "*"

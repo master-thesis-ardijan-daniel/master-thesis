@@ -1,8 +1,8 @@
 use geo::{Coord, Intersects, Rect};
 use serde::Serialize;
 
-mod deserialize;
-mod serialize;
+pub mod deserialize;
+pub mod serialize;
 
 fn slice<D>(data: &Tile<D::Type>, x: usize, y: usize, width: usize, height: usize) -> Tile<D::Type>
 where
