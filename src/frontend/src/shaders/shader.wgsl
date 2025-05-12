@@ -54,7 +54,8 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let pos = normalize(in.pos);
     let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) + 0.5;
     let lat = (asin(pos.z) / PI) + 0.5;
-    for (var layer = 0; layer<32 ; layer++){
+
+    for (var layer = 0; layer < 32 ; layer++){
         let metadata = metadata.tiles[layer];
 
         let nw_lat = (metadata.nw_lat + 90.0) / 180.0;
@@ -62,20 +63,29 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         let se_lat = (metadata.se_lat + 90.0) / 180.0;
         let se_lon = (metadata.se_lon + 180.0) / 360.0;
 
+        
         if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
             continue;
             // return vec4<f32>(0.0, 0.0, lat, 1.0);
         }
+        
 
         let u = (lon - nw_lon) / (se_lon - nw_lon);
         let v = (lat - se_lat) / ( nw_lat - se_lat);
 
+        let scaled_u = u * f32(metadata.width) / 512.;
+        let scaled_v = v * f32(metadata.height) / 512.;
 
-        let scaled_u = u * f32(metadata.width)/256.;
-        let scaled_v = v * f32(metadata.height)/256.;
-        // Scale u and v
-        // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
-        return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
+        // After calculating u and v
+        // let u_clamped = clamp(scaled_u, 0.5 / f32(metadata.width), 1.0 - 0.5 / f32(metadata.width));
+        // let v_clamped = clamp(scaled_v, 0.5 / f32(metadata.height), 1.0 - 0.5 / f32(metadata.height));
+        // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u_clamped, v_clamped), layer);
+
+        // let clamped_u = clamp(scaled_u, 0.0, 1.0);
+        // let clamped_v = clamp(scaled_v, 0.0, 1.0);
+        // // Scale u and v
+        // // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
+        return textureSample(t_diffuse, s_diffuse, vec2<f32>(scaled_u, scaled_v), layer);
     }
 
 

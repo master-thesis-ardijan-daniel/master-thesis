@@ -29,13 +29,28 @@ impl Dataset for EarthmapDataset {
     fn downsample(data: &Tile<Pixel>) -> Tile<Pixel> {
         let pixels: Vec<_> = data.iter().flatten().flatten().copied().collect();
 
-        let image: ImageBuffer<_, Vec<_>> = image::imageops::resize(
-            &ImageBuffer::<Rgba<u8>, _>::from_raw(data[0].len() as u32, data.len() as u32, pixels)
-                .unwrap(),
-            Self::TILE_SIZE,
-            Self::TILE_SIZE,
-            image::imageops::FilterType::Triangle,
-        );
+        // let image: ImageBuffer<_, Vec<_>> = image::imageops::resize(
+        //     &ImageBuffer::<Rgba<u8>, _>::from_raw(data[0].len() as u32, data.len() as u32, pixels)
+        //         .unwrap(),
+        //     Self::TILE_SIZE,
+        //     Self::TILE_SIZE,
+        //     image::imageops::FilterType::Triangle,
+        // );
+        //
+
+        let image: ImageBuffer<_, Vec<_>> =
+            ImageBuffer::<Rgba<u8>, _>::from_raw(data[0].len() as u32, data.len() as u32, pixels)
+                .unwrap();
+        let image: DynamicImage = image.into();
+        let image: ImageBuffer<_, Vec<_>> = image
+            .resize(
+                Self::TILE_SIZE,
+                Self::TILE_SIZE,
+                image::imageops::FilterType::Triangle,
+            )
+            .as_rgba8()
+            .cloned()
+            .unwrap();
 
         image
             .rows()
@@ -65,7 +80,7 @@ impl Dataset for EarthmapDataset {
         )
     }
 
-    const TILE_SIZE: u32 = 256;
+    const TILE_SIZE: u32 = 512;
     const CHILDREN_PER_AXIS: usize = 2;
     const MAX_LEVEL: u32 = 2;
 }

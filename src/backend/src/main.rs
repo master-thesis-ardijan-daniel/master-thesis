@@ -6,6 +6,7 @@ use axum::{
 };
 use backend::{serialize::Serialize as _, Bounds, GeoTree};
 use geo::Coord;
+use image::{DynamicImage, ImageBuffer};
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -19,6 +20,47 @@ async fn main() {
         let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
         GeoTree::build(&data)
     };
+
+    let mut writer = std::fs::File::create("test.db").unwrap();
+    tree.root.serialize(&mut writer).unwrap();
+    drop(writer);
+
+    let tree = backend::deserialize::GeoTree::new("test.db").unwrap();
+
+    for (i, c) in tree.root.children.iter().flatten().enumerate() {
+        let image = ImageBuffer::<image::Rgba<u8>, Vec<_>>::from_raw(
+            c.data.as_ref().unwrap()[0].len() as u32,
+            c.data.as_ref().unwrap().len() as u32,
+            c.data
+                .as_ref()
+                .unwrap()
+                .iter()
+                .flatten()
+                .flatten()
+                .copied()
+                .collect(),
+        )
+        .unwrap();
+
+        image.save(format!("{i}.png")).unwrap();
+    }
+
+    let image = ImageBuffer::<image::Rgba<u8>, Vec<_>>::from_raw(
+        tree.root.data.as_ref().unwrap()[0].len() as u32,
+        tree.root.data.as_ref().unwrap().len() as u32,
+        tree.root
+            .data
+            .as_ref()
+            .unwrap()
+            .iter()
+            .flatten()
+            .flatten()
+            .copied()
+            .collect(),
+    )
+    .unwrap();
+
+    image.save(format!("root.png")).unwrap();
 
     let mut writer = std::fs::File::create("test.db").unwrap();
     tree.root.serialize(&mut writer).unwrap();

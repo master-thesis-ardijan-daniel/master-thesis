@@ -15,7 +15,7 @@ use crate::app::CustomEvent;
 
 use super::{Icosphere, Point};
 
-const TEXTURE_HEIGHT: u32 = 256;
+const TEXTURE_HEIGHT: u32 = 512;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
 
 // const TEXTURE_ATLAS_SIZE: u32 = 2048;
@@ -191,7 +191,7 @@ impl EarthState {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
@@ -268,6 +268,9 @@ impl EarthState {
         let tiles = vec![TileResponse {
             data: vec![vec![[125u8; 4]; 256]; 256],
             bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
+        let tiles = vec![TileResponse {
+            data: vec![vec![[125u8; 4]; TEXTURE_WIDTH as usize]; TEXTURE_HEIGHT as usize],
+            bounds: Rect::new(coord! { x: -180., y: 90.}, coord! { x: 180., y:-90.}),
         }];
 
         Self {
