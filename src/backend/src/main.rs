@@ -15,41 +15,63 @@ use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use world::EarthmapDataset;
 
+mod population;
 mod world;
 
 #[tokio::main]
 async fn main() {
-    let tree = {
-        let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
+    // let tree = {
+    //     let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
+    //     GeoTree::build(&data)
+    // };
+
+    // let mut writer = std::fs::File::create("earth_map.db").unwrap();
+    // tree.root.serialize(&mut writer).unwrap();
+    // drop(writer);
+
+    let population_tree = {
+        let data = population::PopulationDataset::new(
+            "/home/daniel/Nedlastinger/ppp_2020_1km_Aggregated.tif",
+        );
+        println!("Data read");
         GeoTree::build(&data)
     };
+    println!("Built tree");
 
-    let writer = std::fs::File::create("test.db").unwrap();
+    let writer = std::fs::File::create("population.db").unwrap();
     let mut writer = AlignedWriter::new(writer);
-    tree.root.serialize(&mut writer).unwrap();
+    population_tree.root.serialize(&mut writer).unwrap();
     drop(writer);
 
-    let tree = backend::deserialize::GeoTree::new("test.db").unwrap();
+    println!("total population: {:#?}", population_tree.root.aggregate);
 
-    let state = BackendState {
-        image_tree: Arc::new(tree),
-    };
+    return;
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
+    // let tree = backend::deserialize::GeoTree::new("test.db").unwrap();
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    // let state = BackendState {
+    //     image_tree: Arc::new(tree),
+    // };
 
     let router = Router::new()
         .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
         .route("/tiles", get(get_tiles))
         .route("/tile/{z}/{y}/{x}", get(get_tile))
         .with_state(state);
+    // let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
 
-    println!("Listening on {}:{}", addr.ip(), addr.port());
+    // let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-    axum::serve(listener, router.layer(TraceLayer::new_for_http()))
-        .await
-        .unwrap();
+    // let router = Router::new()
+    //     .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
+    //     .route("/tiles", get(get_tiles))
+    //     .with_state(state);
+
+    // println!("Listening on {}:{}", addr.ip(), addr.port());
+
+    // axum::serve(listener, router.layer(TraceLayer::new_for_http()))
+    //     .await
+    //     .unwrap();
 }
 
 #[derive(Clone)]

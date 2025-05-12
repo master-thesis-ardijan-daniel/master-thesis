@@ -219,26 +219,48 @@ where
         let child_width = width / D::CHILDREN_PER_AXIS;
         let child_height = height / D::CHILDREN_PER_AXIS;
 
-        for i in 0..D::CHILDREN_PER_AXIS {
-            let mut row = Vec::new();
+        parent.children = (0..D::CHILDREN_PER_AXIS)
+            .into_iter()
+            .map(|i| {
+                (0..D::CHILDREN_PER_AXIS)
+                    .into_iter()
+                    .map(|j| {
+                        let x_start = j * child_width;
+                        let y_start = i * child_height;
 
-            for j in 0..D::CHILDREN_PER_AXIS {
-                let x_start = j * child_width;
-                let y_start = i * child_height;
+                        let actual_width = if j == D::CHILDREN_PER_AXIS - 1 {
+                            width - x_start
+                        } else {
+                            child_width
+                        };
 
-                let actual_width = if j == D::CHILDREN_PER_AXIS - 1 {
-                    width - x_start
-                } else {
-                    child_width
-                };
+                        let actual_height = if i == D::CHILDREN_PER_AXIS - 1 {
+                            height - y_start
+                        } else {
+                            child_height
+                        };
 
-                let actual_height = if i == D::CHILDREN_PER_AXIS - 1 {
-                    height - y_start
-                } else {
-                    child_height
-                };
+                        let child_data =
+                            slice::<D>(&data, x_start, y_start, actual_width, actual_height);
 
-                let child_data = slice::<D>(&data, x_start, y_start, actual_width, actual_height);
+                        let bounds = Rect::new(
+                            Coord {
+                                x: parent.bounds.min().x
+                                    + (j as f32 * parent.bounds.width()
+                                        / D::CHILDREN_PER_AXIS as f32),
+                                y: parent.bounds.min().y
+                                    + (i as f32 * parent.bounds.height()
+                                        / D::CHILDREN_PER_AXIS as f32),
+                            },
+                            Coord {
+                                x: parent.bounds.min().x
+                                    + ((j + 1) as f32 * parent.bounds.width()
+                                        / D::CHILDREN_PER_AXIS as f32),
+                                y: parent.bounds.min().y
+                                    + ((i + 1) as f32 * parent.bounds.height()
+                                        / D::CHILDREN_PER_AXIS as f32),
+                            },
+                        );
 
                 let bounds_delta_w = parent.bounds.width() / D::CHILDREN_PER_AXIS as f32;
                 let bounds_delta_h = parent.bounds.height() / D::CHILDREN_PER_AXIS as f32;
@@ -252,20 +274,19 @@ where
                         y: parent.bounds.max().y - ((i + 1) as f32 * bounds_delta_h),
                     },
                 );
-
                 let mut child = TileNode {
-                    bounds,
-                    data: None,
-                    aggregate: None,
-                    children: Vec::new(),
-                };
+                            bounds,
+                            data: None,
+                            aggregate: None,
+                            children: Vec::new(),
+                        };
 
-                Self::recursive_slice(&mut child, child_data);
+                        Self::recursive_slice(&mut child, child_data);
 
-                row.push(child);
-            }
-
-            parent.children.push(row);
-        }
+                        child
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
     }
 }
