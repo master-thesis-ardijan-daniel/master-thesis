@@ -157,7 +157,9 @@ where
             children: Vec::new(),
         };
 
+        println!("Started slicing");
         Self::recursive_slice(&mut root, data.data());
+        println!("Started propagating");
         Self::propagate(&mut root);
 
         Self { root }

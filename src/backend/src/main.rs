@@ -11,39 +11,55 @@ use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use world::EarthmapDataset;
 
+mod population;
 mod world;
 
 #[tokio::main]
 async fn main() {
-    let tree = {
-        let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
+    // let tree = {
+    //     let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
+    //     GeoTree::build(&data)
+    // };
+
+    // let mut writer = std::fs::File::create("earth_map.db").unwrap();
+    // tree.root.serialize(&mut writer).unwrap();
+    // drop(writer);
+
+    let population_tree = {
+        let data = population::PopulationDataset::new(
+            "/home/daniel/Nedlastinger/Global_2000_PopulationDensity30sec_GPWv4.tiff",
+        );
+        println!("Data read");
         GeoTree::build(&data)
     };
+    println!("Built tree");
 
-    let mut writer = std::fs::File::create("test.db").unwrap();
-    tree.root.serialize(&mut writer).unwrap();
+    let mut writer = std::fs::File::create("population.db").unwrap();
+    population_tree.root.serialize(&mut writer).unwrap();
     drop(writer);
 
-    let tree = backend::deserialize::GeoTree::new("test.db").unwrap();
+    return;
 
-    let state = BackendState {
-        image_tree: Arc::new(tree),
-    };
+    // let tree = backend::deserialize::GeoTree::new("test.db").unwrap();
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
+    // let state = BackendState {
+    //     image_tree: Arc::new(tree),
+    // };
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    // let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
 
-    let router = Router::new()
-        .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
-        .route("/tiles", get(get_tiles))
-        .with_state(state);
+    // let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-    println!("Listening on {}:{}", addr.ip(), addr.port());
+    // let router = Router::new()
+    //     .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
+    //     .route("/tiles", get(get_tiles))
+    //     .with_state(state);
 
-    axum::serve(listener, router.layer(TraceLayer::new_for_http()))
-        .await
-        .unwrap();
+    // println!("Listening on {}:{}", addr.ip(), addr.port());
+
+    // axum::serve(listener, router.layer(TraceLayer::new_for_http()))
+    //     .await
+    //     .unwrap();
 }
 
 #[derive(Clone)]
