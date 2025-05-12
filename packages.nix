@@ -35,6 +35,14 @@ let
   native = rec {
     args = commonArgs // {
       cargoExtraArgs = "--package=backend --locked";
+
+      buildInputs = with pkgs; [
+        gdal
+      ];
+      
+      nativeBuildInputs = with pkgs; [
+        pkg-config
+      ];
     };
     cargoArtifacts = craneLib.buildDepsOnly args;
   };
