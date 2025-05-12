@@ -4,7 +4,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use backend::{Bounds, GeoTree};
+use backend::{serialize::Serialize as _, Bounds, GeoTree};
 use geo::Coord;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
@@ -19,6 +19,12 @@ async fn main() {
         let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
         GeoTree::build(&data)
     };
+
+    let mut writer = std::fs::File::create("test.db").unwrap();
+    tree.root.serialize(&mut writer).unwrap();
+    drop(writer);
+
+    let tree = backend::deserialize::GeoTree::new("test.db").unwrap();
 
     let state = BackendState {
         image_tree: Arc::new(tree),
@@ -42,7 +48,7 @@ async fn main() {
 
 #[derive(Clone)]
 struct BackendState {
-    image_tree: Arc<GeoTree<EarthmapDataset>>,
+    image_tree: Arc<backend::deserialize::GeoTree<EarthmapDataset>>,
 }
 
 #[derive(Deserialize)]

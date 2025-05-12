@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use common::TileRef;
+use common::TileResponse;
 use web_time::Duration;
 use winit::{
     application::ApplicationHandler,
@@ -19,7 +19,7 @@ pub enum CustomEvent {
 
 #[derive(Debug)]
 pub enum CustomResponseType {
-    StartupTileResponse(Vec<TileRef<[u8; 4]>>),
+    StartupTileResponse(Vec<TileResponse<[u8; 4]>>),
 }
 
 pub struct App {

@@ -1,6 +1,9 @@
 use geo::{Coord, Intersects, Rect};
 use serde::Serialize;
 
+pub mod deserialize;
+pub mod serialize;
+
 fn slice<D>(data: &Tile<D::Type>, x: usize, y: usize, width: usize, height: usize) -> Tile<D::Type>
 where
     D: Dataset,
