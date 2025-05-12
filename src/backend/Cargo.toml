@@ -18,3 +18,5 @@ image = { version = "*", features = ["serde"] }
 memmap2 = "0.9"
 
 common = { path="../common" }
+
+gdal = { version = "0.18", features = ["bindgen"] }
