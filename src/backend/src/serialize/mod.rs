@@ -10,16 +10,79 @@ use geo::{Coord, CoordNum};
 use crate::TileNode;
 
 pub trait Serialize {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write;
+}
+
+#[derive(Clone, Copy)]
+pub struct AlignedWriter<W> {
+    inner: W,
+    position: usize,
+}
+
+impl<W> AlignedWriter<W>
+where
+    W: Write,
+{
+    pub fn new(inner: W) -> Self {
+        Self { inner, position: 0 }
+    }
+
+    fn with<W2>(&self, inner: W2) -> AlignedWriter<W2> {
+        AlignedWriter {
+            inner,
+            position: self.position,
+        }
+    }
+
+    fn write<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: Pod,
+    {
+        let padding = self.padding::<T>();
+        self.inner.write_all(&vec![0; padding])?;
+        self.position += padding;
+
+        let bytes = bytemuck::bytes_of(value);
+        self.inner.write_all(bytes)?;
+        self.position += bytes.len();
+
+        Ok(())
+    }
+
+    fn write_slice<T>(&mut self, slice: &[T]) -> Result<()>
+    where
+        T: Pod,
+    {
+        let padding = self.padding::<T>();
+        self.inner.write_all(&vec![0; padding])?;
+        self.position += padding;
+
+        let bytes = bytemuck::cast_slice(slice);
+        self.inner.write_all(bytes)?;
+        self.position += bytes.len();
+
+        Ok(())
+    }
+
+    pub fn padding<T>(&self) -> usize {
+        let alignment = std::mem::align_of::<T>();
+        let remainder = self.position % alignment;
+
+        if remainder == 0 {
+            0
+        } else {
+            alignment - remainder
+        }
+    }
 }
 
 impl<T> Serialize for TileNode<T>
 where
     T: Pod,
 {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
@@ -30,22 +93,20 @@ where
             let mut queue = VecDeque::new();
             queue.push_back(self);
 
-            let mut sink = std::io::sink();
-
-            let mut bytes_written = 0;
+            let mut sink = writer.with(std::io::sink());
 
             while let Some(node) = queue.pop_front() {
-                pointers.insert(node as *const _ as usize, bytes_written);
+                pointers.insert(node as *const _ as usize, sink.position);
 
-                bytes_written += node.bounds.serialize(&mut sink)?;
-                bytes_written += (&node
+                node.bounds.serialize(&mut sink)?;
+                (&node
                     .children
                     .iter()
                     .map(|row| row.iter().map(|_| 0_usize).collect::<Vec<_>>())
                     .collect::<Vec<_>>())
                     .serialize(&mut sink)?;
-                bytes_written += node.aggregate.as_ref().as_ref().serialize(&mut sink)?;
-                bytes_written += node.data.as_ref().serialize(&mut sink)?;
+                node.aggregate.as_ref().as_ref().serialize(&mut sink)?;
+                node.data.as_ref().serialize(&mut sink)?;
 
                 for child in node.children.iter().flatten() {
                     queue.push_back(child);
@@ -58,10 +119,8 @@ where
         let mut queue = VecDeque::new();
         queue.push_back(self);
 
-        let mut bytes_written = 0;
-
         while let Some(node) = queue.pop_front() {
-            bytes_written += node.bounds.serialize(writer)?;
+            node.bounds.serialize(writer)?;
 
             let children = node
                 .children
@@ -73,43 +132,38 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            bytes_written += (&children).serialize(writer)?;
+            (&children).serialize(writer)?;
 
-            bytes_written += node.aggregate.as_ref().as_ref().serialize(writer)?;
-            bytes_written += node.data.as_ref().serialize(writer)?;
+            node.aggregate.as_ref().as_ref().serialize(writer)?;
+            node.data.as_ref().serialize(writer)?;
 
             for child in node.children.iter().flatten() {
                 queue.push_back(child);
             }
         }
 
-        Ok(bytes_written)
+        Ok(())
     }
 }
 
 impl<T: Pod> Serialize for &&T {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
-        let bytes = bytemuck::bytes_of(**self);
-        writer.write_all(bytes)?;
-
-        Ok(bytes.len())
+        writer.write(**self)
     }
 }
 
 impl Serialize for Bounds {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
-        let mut bytes_written = 0;
+        Serialize::serialize(&self.min(), writer)?;
+        Serialize::serialize(&self.max(), writer)?;
 
-        bytes_written += Serialize::serialize(&self.min(), writer)?;
-        bytes_written += Serialize::serialize(&self.max(), writer)?;
-
-        Ok(bytes_written)
+        Ok(())
     }
 }
 
@@ -117,7 +171,7 @@ impl<T> Serialize for Vec<T>
 where
     T: Pod,
 {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
@@ -129,28 +183,21 @@ impl<T> Serialize for Option<T>
 where
     T: Serialize,
 {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
-        let mut bytes_written = 0;
-
         match self {
             Some(inner) => {
-                let bytes = bytemuck::bytes_of(&1_usize);
-                writer.write_all(bytes)?;
-                bytes_written += bytes.len();
-
-                bytes_written += inner.serialize(writer)?;
+                writer.write(&1_u8)?;
+                inner.serialize(writer)?;
             }
             _ => {
-                let bytes = bytemuck::bytes_of(&0_usize);
-                writer.write_all(bytes)?;
-                bytes_written += bytes.len();
+                writer.write(&0_u8)?;
             }
         }
 
-        Ok(bytes_written)
+        Ok(())
     }
 }
 
@@ -158,23 +205,17 @@ impl<T> Serialize for &Vec<Vec<T>>
 where
     T: Pod,
 {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
-        let mut bytes_written = 0;
-
-        let height = self.len();
-        let bytes = bytemuck::bytes_of(&height);
-        writer.write_all(bytes)?;
-
-        bytes_written += bytes.len();
+        writer.write(&self.len())?;
 
         for v in *self {
-            bytes_written += Serialize::serialize(v, writer)?;
+            Serialize::serialize(v, writer)?;
         }
 
-        Ok(bytes_written)
+        Ok(())
     }
 }
 
@@ -182,28 +223,14 @@ impl<T> Serialize for &[T]
 where
     T: Pod,
 {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
-        let mut bytes_written = 0;
+        writer.write(&self.len())?;
+        writer.write_slice(self)?;
 
-        {
-            let len = self.len();
-            let bytes = bytemuck::bytes_of(&len);
-            writer.write_all(bytes)?;
-
-            bytes_written += bytes.len();
-        }
-
-        {
-            let bytes = bytemuck::cast_slice(self);
-            writer.write_all(bytes)?;
-
-            bytes_written += bytes.len();
-        }
-
-        Ok(bytes_written)
+        Ok(())
     }
 }
 
@@ -211,23 +238,13 @@ impl<T> Serialize for Coord<T>
 where
     T: CoordNum + bytemuck::Pod,
 {
-    fn serialize<W>(&self, writer: &mut W) -> Result<usize>
+    fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where
         W: Write,
     {
-        let mut bytes_written = 0;
+        writer.write(&self.x)?;
+        writer.write(&self.y)?;
 
-        {
-            let bytes = bytemuck::bytes_of(&self.x);
-            writer.write_all(bytes)?;
-            bytes_written += bytes.len();
-        }
-        {
-            let bytes = bytemuck::bytes_of(&self.y);
-            writer.write_all(bytes)?;
-            bytes_written += bytes.len();
-        }
-
-        Ok(bytes_written)
+        Ok(())
     }
 }

@@ -4,7 +4,7 @@ use bytemuck::Pod;
 
 use super::{
     tree::{Pointer, TileNode},
-    Deserialize,
+    AlignedReader, Deserialize,
 };
 
 pub struct Reader<'a> {
@@ -26,9 +26,9 @@ impl<'a> Reader<'a> {
     {
         let position = self.position.load(Ordering::Relaxed);
 
-        let (read, out) = T::deserialize(&self.data[position..]);
-
-        self.position.fetch_add(read, Ordering::Relaxed);
+        let mut reader = AlignedReader::new(&self.data[position..]);
+        let out = T::deserialize(&mut reader);
+        self.position.fetch_add(reader.position, Ordering::Relaxed);
 
         out
     }
@@ -37,10 +37,11 @@ impl<'a> Reader<'a> {
     where
         T: Pod,
     {
-        let (read, out) = Deserialize::deserialize(&self.data[pointer.position..]);
+        let mut reader = AlignedReader::new(&self.data[pointer.position..]);
+        let out = Deserialize::deserialize(&mut reader);
 
         self.position
-            .store(pointer.position + read, Ordering::Relaxed);
+            .store(pointer.position + reader.position, Ordering::Relaxed);
 
         out
     }

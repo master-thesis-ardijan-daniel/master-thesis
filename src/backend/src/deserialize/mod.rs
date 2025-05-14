@@ -10,24 +10,70 @@ mod tree;
 
 pub use tree::GeoTree;
 
+#[derive(Clone, Copy)]
+pub struct AlignedReader<'a> {
+    inner: &'a [u8],
+    position: usize,
+}
+
+impl<'a> AlignedReader<'a> {
+    pub fn new(inner: &'a [u8]) -> Self {
+        Self { inner, position: 0 }
+    }
+
+    fn read<T>(&mut self) -> &'a T
+    where
+        T: Pod,
+    {
+        let padding = self.padding::<T>();
+        self.position += padding;
+
+        let read = std::mem::size_of::<T>();
+        let out = bytemuck::from_bytes(&self.inner[self.position..self.position + read]);
+        self.position += read;
+
+        out
+    }
+
+    fn read_slice<T>(&mut self, len: usize) -> &'a [T]
+    where
+        T: Pod,
+    {
+        let padding = self.padding::<T>();
+        self.position += padding;
+
+        let read = std::mem::size_of::<T>() * len;
+        let out = bytemuck::cast_slice(&self.inner[self.position..self.position + read]);
+        self.position += read;
+
+        out
+    }
+
+    pub fn padding<T>(&self) -> usize {
+        let alignment = std::mem::align_of::<T>();
+        let remainder = self.position % alignment;
+
+        if remainder == 0 {
+            0
+        } else {
+            alignment - remainder
+        }
+    }
+}
+
 pub trait Deserialize<'de> {
-    fn deserialize(bytes: &'de [u8]) -> (usize, Self);
+    fn deserialize(bytes: &mut AlignedReader<'de>) -> Self;
 }
 
 impl<'a, T> Deserialize<'a> for TileData<'a, T>
 where
     T: Pod,
 {
-    fn deserialize(bytes: &'a [u8]) -> (usize, Self) {
-        let mut cur = 0;
+    fn deserialize(reader: &mut AlignedReader<'a>) -> Self {
+        let aggregate = Deserialize::deserialize(reader);
+        let tile = Deserialize::deserialize(reader);
 
-        let (read, aggregate) = Deserialize::deserialize(&bytes[cur..]);
-        cur += read;
-
-        let (read, tile) = Deserialize::deserialize(&bytes[cur..]);
-        cur += read;
-
-        (cur, Self { aggregate, tile })
+        Self { aggregate, tile }
     }
 }
 
@@ -35,16 +81,11 @@ impl<'a, T> Deserialize<'a> for TileNode<'a, T>
 where
     T: Pod,
 {
-    fn deserialize(bytes: &'a [u8]) -> (usize, Self) {
-        let mut cur = 0;
+    fn deserialize(reader: &mut AlignedReader<'a>) -> Self {
+        let bounds = Deserialize::deserialize(reader);
+        let children = Deserialize::deserialize(reader);
 
-        let (read, bounds) = Deserialize::deserialize(&bytes[cur..]);
-        cur += read;
-
-        let (read, children) = Deserialize::deserialize(&bytes[cur..]);
-        cur += read;
-
-        (cur, Self { bounds, children })
+        Self { bounds, children }
     }
 }
 
@@ -55,14 +96,8 @@ pub struct TileRef<'a, T> {
 }
 
 impl<'a, T: Pod> Deserialize<'a> for &'a T {
-    fn deserialize(bytes: &'a [u8]) -> (usize, Self) {
-        let mut cur = 0;
-
-        let read = std::mem::size_of::<T>();
-        let out = bytemuck::from_bytes::<T>(&bytes[cur..cur + read]);
-        cur += read;
-
-        (cur, out)
+    fn deserialize(reader: &mut AlignedReader<'a>) -> Self {
+        reader.read()
     }
 }
 
@@ -70,32 +105,20 @@ impl<T> Deserialize<'_> for Coord<T>
 where
     T: CoordNum + Pod,
 {
-    fn deserialize(bytes: &[u8]) -> (usize, Self) {
-        let mut cur = 0;
+    fn deserialize(reader: &mut AlignedReader<'_>) -> Self {
+        let x = *reader.read::<T>();
+        let y = *reader.read::<T>();
 
-        let read = std::mem::size_of::<T>();
-        let x = *bytemuck::from_bytes::<T>(&bytes[cur..cur + read]);
-        cur += read;
-
-        let read = std::mem::size_of::<T>();
-        let y = *bytemuck::from_bytes::<T>(&bytes[cur..cur + read]);
-        cur += read;
-
-        (cur, Self { x, y })
+        Self { x, y }
     }
 }
 
 impl Deserialize<'_> for Bounds {
-    fn deserialize(bytes: &[u8]) -> (usize, Self) {
-        let mut cur = 0;
+    fn deserialize(reader: &mut AlignedReader<'_>) -> Self {
+        let min = Coord::deserialize(reader);
+        let max = Coord::deserialize(reader);
 
-        let (read, min) = Coord::deserialize(&bytes[cur..]);
-        cur += read;
-
-        let (read, max) = Coord::deserialize(&bytes[cur..]);
-        cur += read;
-
-        (cur, Self::new(min, max))
+        Self::new(min, max)
     }
 }
 
@@ -103,18 +126,10 @@ impl<'a, T> Deserialize<'a> for &'a [T]
 where
     T: Pod,
 {
-    fn deserialize(bytes: &'a [u8]) -> (usize, Self) {
-        let mut cur = 0;
+    fn deserialize(reader: &mut AlignedReader<'a>) -> Self {
+        let len = *reader.read::<usize>();
 
-        let read = std::mem::size_of::<usize>();
-        let len = *bytemuck::from_bytes::<usize>(&bytes[cur..cur + read]);
-        cur += read;
-
-        let read = len * std::mem::size_of::<T>();
-        let array = bytemuck::cast_slice(&bytes[cur..cur + read]);
-        cur += read;
-
-        (cur, array)
+        reader.read_slice(len)
     }
 }
 
@@ -122,24 +137,12 @@ impl<'a, T> Deserialize<'a> for Vec<&'a [T]>
 where
     T: Pod,
 {
-    fn deserialize(bytes: &'a [u8]) -> (usize, Self) {
-        let mut cur = 0;
+    fn deserialize(reader: &mut AlignedReader<'a>) -> Self {
+        let height = *reader.read::<usize>();
 
-        let read = std::mem::size_of::<usize>();
-        let height = *bytemuck::from_bytes::<usize>(&bytes[cur..cur + read]);
-        cur += read;
-
-        let mut out = Vec::with_capacity(height);
-
-        for _ in 0..height {
-            let (read, array) = <&[T] as Deserialize>::deserialize(&bytes[cur..]);
-
-            out.push(array);
-
-            cur += read;
-        }
-
-        (cur, out)
+        (0..height)
+            .map(|_| <&[T] as Deserialize>::deserialize(reader))
+            .collect()
     }
 }
 
@@ -147,20 +150,13 @@ impl<'a, T> Deserialize<'a> for Option<T>
 where
     T: Deserialize<'a>,
 {
-    fn deserialize(bytes: &'a [u8]) -> (usize, Self) {
-        let mut cur = 0;
-
-        let read = std::mem::size_of::<usize>();
-        let option = *bytemuck::from_bytes::<usize>(&bytes[cur..cur + read]);
-        cur += read;
+    fn deserialize(reader: &mut AlignedReader<'a>) -> Self {
+        let option = *reader.read::<u8>();
 
         if option != 1 {
-            return (cur, None);
+            return None;
         }
 
-        let (read, value) = Deserialize::deserialize(&bytes[cur..]);
-        cur += read;
-
-        (cur, Some(value))
+        Some(Deserialize::deserialize(reader))
     }
 }
