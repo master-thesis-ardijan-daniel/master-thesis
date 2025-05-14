@@ -9,6 +9,7 @@ use backend::{
     Bounds, GeoTree,
 };
 use geo::Coord;
+use population::PopulationDataset;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -25,6 +26,7 @@ async fn main() {
     // };
 
     // let mut writer = std::fs::File::create("earth_map.db").unwrap();
+    // let mut writer = AlignedWriter::new(writer);
     // tree.root.serialize(&mut writer).unwrap();
     // drop(writer);
 
@@ -37,12 +39,13 @@ async fn main() {
     };
     println!("Built tree");
 
-    let writer = std::fs::File::create("population.db").unwrap();
-    let mut writer = AlignedWriter::new(writer);
-    population_tree.root.serialize(&mut writer).unwrap();
-    drop(writer);
-
     println!("total population: {:#?}", population_tree.root.aggregate);
+    // let writer = std::fs::File::create("population.db").unwrap();
+    // let mut writer = AlignedWriter::new(writer);
+    // population_tree.root.serialize(&mut writer).unwrap();
+    // drop(writer);
+
+    // println!("total population: {:#?}", population_tree.root.aggregate);
 
     return;
 
@@ -50,22 +53,48 @@ async fn main() {
 
     // let state = BackendState {
     //     image_tree: Arc::new(tree),
+    // let population_tree = {
+    //     let data = population::PopulationDataset::new(
+    //         "/home/daniel/Nedlastinger/Global_2000_PopulationDensity30sec_GPWv4.tiff",
+    //     );
+    //     println!("Data read");
+    //     GeoTree::build(&data)
     // };
+    // println!("Built tree");
 
-    // let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
+    // println!("Total population: {:#?}", population_tree.root.aggregate);
 
-    // let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    // let mut writer = std::fs::File::create("population.db").unwrap();
+    // let mut writer = AlignedWriter::new(writer);
+    // population_tree.root.serialize(&mut writer).unwrap();
+    // println!("Padding: {}", writer.padding);
+    // drop(writer);
 
-    // let router = Router::new()
-    //     .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
-    //     .route("/tiles", get(get_tiles))
-    //     .with_state(state);
+    // // return;
+    // //
 
-    // println!("Listening on {}:{}", addr.ip(), addr.port());
+    // let tree = backend::deserialize::GeoTree::<PopulationDataset>::new("population.db").unwrap();
+    // println!("Total population: {:#?}", tree.root().aggregate);
+    let tree = backend::deserialize::GeoTree::new("earth_map.db").unwrap();
 
-    // axum::serve(listener, router.layer(TraceLayer::new_for_http()))
-    //     .await
-    //     .unwrap();
+    let state = BackendState {
+        image_tree: Arc::new(tree),
+    };
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+
+    let router = Router::new()
+        .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
+        .route("/tiles", get(get_tiles))
+        .with_state(state);
+
+    println!("Listening on {}:{}", addr.ip(), addr.port());
+
+    axum::serve(listener, router.layer(TraceLayer::new_for_http()))
+        .await
+        .unwrap();
 }
 
 #[derive(Clone)]

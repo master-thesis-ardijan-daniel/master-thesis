@@ -312,6 +312,7 @@ dependencies = [
  "geo",
  "image",
  "memmap2",
+ "rayon",
  "serde",
  "tokio",
  "tower-http",

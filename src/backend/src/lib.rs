@@ -1,4 +1,5 @@
 use geo::{Coord, Intersects, Rect};
+use rayon::prelude::*;
 use serde::Serialize;
 
 pub mod deserialize;
@@ -158,8 +159,9 @@ where
 impl<D> GeoTree<D>
 where
     D: Dataset,
-    D::Type: Copy,
+    D::Type: Copy + Send + Sync,
     D::AggregateType: Copy,
+    D::AggregateType: Copy + Send + Sync,
 {
     pub fn build(data: &D) -> Self {
         let mut root = TileNode {
@@ -193,8 +195,7 @@ where
         let data = flatten(data);
 
         parent.data = Some(D::downsample(&data));
-
-        let aggregates = parent
+        let aggregate = parent
             .children
             .iter()
             .flatten()
@@ -202,7 +203,7 @@ where
             .copied()
             .collect::<Vec<_>>();
 
-        parent.aggregate = D::aggregate2(&aggregates);
+        parent.aggregate = D::aggregate2(&aggregate);
     }
 
     fn recursive_slice(parent: &mut TileNode<D::Type, D::AggregateType>, data: Tile<D::Type>) {
@@ -219,57 +220,116 @@ where
         let child_width = width / D::CHILDREN_PER_AXIS;
         let child_height = height / D::CHILDREN_PER_AXIS;
 
-        for i in 0..D::CHILDREN_PER_AXIS {
-            let mut row = Vec::new();
+        // for i in 0..D::CHILDREN_PER_AXIS {
+        //     let mut row = Vec::new();
 
-            for j in 0..D::CHILDREN_PER_AXIS {
-                let x_start = j * child_width;
-                let y_start = i * child_height;
+        //     for j in 0..D::CHILDREN_PER_AXIS {
+        //         let x_start = j * child_width;
+        //         let y_start = i * child_height;
 
-                let actual_width = if j == D::CHILDREN_PER_AXIS - 1 {
-                    width - x_start
-                } else {
-                    child_width
-                };
+        //         let actual_width = if j == D::CHILDREN_PER_AXIS - 1 {
+        //             width - x_start
+        //         } else {
+        //             child_width
+        //         };
 
-                let actual_height = if i == D::CHILDREN_PER_AXIS - 1 {
-                    height - y_start
-                } else {
-                    child_height
-                };
+        //         let actual_height = if i == D::CHILDREN_PER_AXIS - 1 {
+        //             height - y_start
+        //         } else {
+        //             child_height
+        //         };
 
-                let child_data = slice::<D>(&data, x_start, y_start, actual_width, actual_height);
+        //         let child_data = slice::<D>(&data, x_start, y_start, actual_width, actual_height);
 
-                let bounds = Rect::new(
-                    Coord {
-                        x: parent.bounds.min().x
-                            + (j as f32 * parent.bounds.width() / D::CHILDREN_PER_AXIS as f32),
-                        y: parent.bounds.min().y
-                            + (i as f32 * parent.bounds.height() / D::CHILDREN_PER_AXIS as f32),
-                    },
-                    Coord {
-                        x: parent.bounds.min().x
-                            + ((j + 1) as f32 * parent.bounds.width()
-                                / D::CHILDREN_PER_AXIS as f32),
-                        y: parent.bounds.min().y
-                            + ((i + 1) as f32 * parent.bounds.height()
-                                / D::CHILDREN_PER_AXIS as f32),
-                    },
-                );
+        //         let bounds = Rect::new(
+        //             Coord {
+        //                 x: parent.bounds.min().x
+        //                     + (j as f32 * parent.bounds.width() / D::CHILDREN_PER_AXIS as f32),
+        //                 y: parent.bounds.min().y
+        //                     + (i as f32 * parent.bounds.height() / D::CHILDREN_PER_AXIS as f32),
+        //             },
+        //             Coord {
+        //                 x: parent.bounds.min().x
+        //                     + ((j + 1) as f32 * parent.bounds.width()
+        //                         / D::CHILDREN_PER_AXIS as f32),
+        //                 y: parent.bounds.min().y
+        //                     + ((i + 1) as f32 * parent.bounds.height()
+        //                         / D::CHILDREN_PER_AXIS as f32),
+        //             },
+        //         );
 
-                let mut child = TileNode {
-                    bounds,
-                    data: None,
-                    aggregate: None,
-                    children: Vec::new(),
-                };
+        //         let mut child = TileNode {
+        //             bounds,
+        //             data: None,
+        //             aggregate: None,
+        //             children: Vec::new(),
+        //         };
 
-                Self::recursive_slice(&mut child, child_data);
+        //         Self::recursive_slice(&mut child, child_data);
 
-                row.push(child);
-            }
+        //         row.push(child);
+        //     }
 
-            parent.children.push(row);
-        }
+        //     parent.children.push(row);
+        // }
+
+        parent.children = (0..D::CHILDREN_PER_AXIS)
+            .into_iter()
+            .map(|i| {
+                // let data = data.clone();
+                let bounds = parent.bounds;
+
+                (0..D::CHILDREN_PER_AXIS)
+                    .into_iter()
+                    .map(|j| {
+                        let x_start = j * child_width;
+                        let y_start = i * child_height;
+
+                        let actual_width = if j == D::CHILDREN_PER_AXIS - 1 {
+                            width - x_start
+                        } else {
+                            child_width
+                        };
+
+                        let actual_height = if i == D::CHILDREN_PER_AXIS - 1 {
+                            height - y_start
+                        } else {
+                            child_height
+                        };
+
+                        let child_data =
+                            slice::<D>(&data, x_start, y_start, actual_width, actual_height);
+
+                        let bounds = Rect::new(
+                            Coord {
+                                x: bounds.min().x
+                                    + (j as f32 * bounds.width() / D::CHILDREN_PER_AXIS as f32),
+                                y: bounds.min().y
+                                    + (i as f32 * bounds.height() / D::CHILDREN_PER_AXIS as f32),
+                            },
+                            Coord {
+                                x: bounds.min().x
+                                    + ((j + 1) as f32 * bounds.width()
+                                        / D::CHILDREN_PER_AXIS as f32),
+                                y: bounds.min().y
+                                    + ((i + 1) as f32 * bounds.height()
+                                        / D::CHILDREN_PER_AXIS as f32),
+                            },
+                        );
+
+                        let mut child = TileNode {
+                            bounds,
+                            data: None,
+                            aggregate: None,
+                            children: Vec::new(),
+                        };
+
+                        Self::recursive_slice(&mut child, child_data);
+
+                        child
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
     }
 }

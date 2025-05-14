@@ -3,6 +3,7 @@ use std::cmp::max;
 use backend::{Bounds, Dataset};
 use common::Coordinate;
 use geo::Coord;
+use rayon::prelude::*;
 
 pub struct PopulationDataset {
     data: gdal::Dataset,
@@ -43,7 +44,8 @@ impl Dataset for PopulationDataset {
     }
 
     fn aggregate2(values: &[Self::AggregateType]) -> Option<Self::AggregateType> {
-        Some(values.iter().filter(|&&c| c >= 0.).sum())
+                .iter()
+                .filter(|&&c| c >= 0.)
     }
 
     fn downsample(data: &backend::Tile<Self::Type>) -> backend::Tile<Self::Type> {
