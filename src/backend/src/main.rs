@@ -4,7 +4,10 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use backend::{serialize::Serialize as _, Bounds, GeoTree};
+use backend::{
+    serialize::{AlignedWriter, Serialize as _},
+    Bounds, GeoTree,
+};
 use geo::Coord;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
@@ -20,7 +23,8 @@ async fn main() {
         GeoTree::build(&data)
     };
 
-    let mut writer = std::fs::File::create("test.db").unwrap();
+    let writer = std::fs::File::create("test.db").unwrap();
+    let mut writer = AlignedWriter::new(writer);
     tree.root.serialize(&mut writer).unwrap();
     drop(writer);
 

@@ -80,7 +80,7 @@ where
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
 pub struct Pointer<T> {
     pub position: usize,
     _type: std::marker::PhantomData<T>,
@@ -95,11 +95,13 @@ impl<T> Default for Pointer<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct TileNode<'a, T> {
     pub bounds: Bounds,
     pub children: Vec<&'a [Pointer<T>]>,
 }
 
+#[derive(Debug)]
 pub struct TileData<'a, T> {
     #[allow(dead_code)]
     pub aggregate: Option<&'a T>,
