@@ -1,53 +1,37 @@
-use std::cmp::max;
+use std::{cmp::max, path::Path};
 
-use backend::{Bounds, Dataset};
-use common::Coordinate;
+use backend::{Dataset, Tile};
+use common::Bounds;
 use geo::Coord;
-use rayon::prelude::*;
 
-pub struct PopulationDataset {
+pub struct LightPollutionDataset {
     data: gdal::Dataset,
 }
 
-impl PopulationDataset {
+impl LightPollutionDataset {
     pub fn new<P>(path: P) -> Self
     where
-        P: AsRef<std::path::Path>,
+        P: AsRef<Path>,
     {
         let data = gdal::Dataset::open(path).unwrap();
-
-        let gt = data.geo_transform().unwrap();
-
-        println!(
-            "iter().sum(): Total population: {:#?}",
-            Self::aggregate(
-                data.rasterbands()
-                    .next()
-                    .unwrap()
-                    .unwrap()
-                    .read_band_as::<<PopulationDataset as backend::Dataset>::Type>()
-                    .unwrap()
-                    .data()
-            )
-        );
 
         Self { data }
     }
 }
 
-impl Dataset for PopulationDataset {
+impl Dataset for LightPollutionDataset {
     type Type = f32;
-    type AggregateType = f64;
+    type AggregateType = f32;
 
     fn aggregate(values: &[Self::Type]) -> Option<Self::AggregateType> {
-        Some(values.iter().filter(|&&c| c >= 0.).map(|&x| x as f64).sum())
+        None
     }
 
     fn aggregate2(values: &[Self::AggregateType]) -> Option<Self::AggregateType> {
-        Some(values.iter().filter(|&&c| c >= 0.).map(|&x| x as f64).sum())
+        None
     }
 
-    fn downsample(data: &backend::Tile<Self::Type>) -> backend::Tile<Self::Type> {
+    fn downsample(data: &Tile<Self::Type>) -> Tile<Self::Type> {
         let scale = {
             let scale_height = data.len() / Self::TILE_SIZE as usize;
             let scale_width = data[0].len() / Self::TILE_SIZE as usize;
@@ -58,25 +42,31 @@ impl Dataset for PopulationDataset {
         let height = data.len() / scale;
         let width = data[0].len() / scale;
 
-        let mut output = vec![vec![0.; width]; height];
+        let mut output = vec![vec![0.0; width]; height];
 
         for i in 0..height {
             for j in 0..width {
-                let mut sum = 0.0;
+                let mut sum = 0.;
+                let mut count = 0.;
 
-                // Sum over the block
                 for dy in 0..scale {
                     for dx in 0..scale {
                         let input_i = i * scale + dy;
                         let input_j = j * scale + dx;
 
                         if input_i < data.len() && input_j < data[0].len() {
+                            let value = data[input_i][input_j];
+                            if value == Self::default() {
+                                continue;
+                            }
+
                             sum += data[input_i][input_j];
+                            count += 1.;
                         }
                     }
                 }
 
-                output[i][j] = sum;
+                output[i][j] = sum / count;
             }
         }
 
@@ -84,10 +74,10 @@ impl Dataset for PopulationDataset {
     }
 
     fn default() -> Self::Type {
-        -3.402823e+38
+        u16::MAX as f32
     }
 
-    fn data(&self) -> backend::Tile<Self::Type> {
+    fn data(&self) -> Tile<Self::Type> {
         let band = self
             .data
             .rasterbands()
@@ -97,7 +87,7 @@ impl Dataset for PopulationDataset {
             .read_band_as::<Self::Type>()
             .unwrap();
 
-        let ((cols, rows), mut data) = band.into_shape_and_vec();
+        let ((cols, _), data) = band.into_shape_and_vec();
 
         data.chunks(cols).map(|chunk| chunk.to_vec()).collect()
     }
@@ -110,5 +100,5 @@ impl Dataset for PopulationDataset {
 
     const CHILDREN_PER_AXIS: usize = 2;
 
-    const MAX_LEVEL: u32 = 11;
+    const MAX_LEVEL: u32 = 0;
 }
