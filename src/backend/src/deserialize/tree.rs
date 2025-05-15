@@ -34,10 +34,11 @@ where
     pub fn get_tiles(&self, area: Bounds, level: u32) -> Vec<TileRefResponse<'_, D::Type>>
     where
         D::Type: Pod,
+        D::AggregateType: Pod,
     {
         let reader = Reader::new(&self.data);
 
-        fn inner<'a, T>(
+        fn inner<'a, T, U>(
             level: u32,
             current_level: u32,
             pointer: &Pointer<T>,
@@ -46,12 +47,13 @@ where
         ) -> Option<Vec<TileRefResponse<'a, T>>>
         where
             T: Pod,
+            U: Pod,
         {
             let node = reader.load(pointer);
 
             if node.bounds.intersects(&area) {
                 if current_level == level {
-                    let data = reader.read::<TileData<T>>();
+                    let data = reader.read::<TileData<T, U>>();
 
                     return data.tile.map(|tile| {
                         vec![TileRefResponse {
@@ -66,7 +68,9 @@ where
                         .iter()
                         .copied()
                         .flatten()
-                        .flat_map(|child| inner(level, current_level + 1, child, area, reader))
+                        .flat_map(|child| {
+                            inner::<_, U>(level, current_level + 1, child, area, reader)
+                        })
                         .flatten()
                         .collect(),
                 )
@@ -75,7 +79,7 @@ where
             }
         }
 
-        inner(level, 0, &Pointer::default(), area, &reader).unwrap()
+        inner::<_, D::AggregateType>(level, 0, &Pointer::default(), area, &reader).unwrap()
     }
 }
 
@@ -102,8 +106,8 @@ pub struct TileNode<'a, T> {
 }
 
 #[derive(Debug)]
-pub struct TileData<'a, T> {
+pub struct TileData<'a, T, U> {
     #[allow(dead_code)]
-    pub aggregate: Option<&'a T>,
+    pub aggregate: Option<&'a U>,
     pub tile: Option<Vec<&'a [T]>>,
 }

@@ -78,9 +78,10 @@ where
     }
 }
 
-impl<T> Serialize for TileNode<T>
+impl<T, U> Serialize for TileNode<T, U>
 where
     T: Pod,
+    U: Pod,
 {
     fn serialize<W>(&self, writer: &mut AlignedWriter<W>) -> Result<()>
     where

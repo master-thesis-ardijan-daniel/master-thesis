@@ -65,9 +65,10 @@ pub trait Deserialize<'de> {
     fn deserialize(bytes: &mut AlignedReader<'de>) -> Self;
 }
 
-impl<'a, T> Deserialize<'a> for TileData<'a, T>
+impl<'a, T, U> Deserialize<'a> for TileData<'a, T, U>
 where
     T: Pod,
+    U: Pod,
 {
     fn deserialize(reader: &mut AlignedReader<'a>) -> Self {
         let aggregate = Deserialize::deserialize(reader);
