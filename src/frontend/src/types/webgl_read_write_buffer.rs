@@ -77,7 +77,7 @@ impl WebGLReadWriteBuffers {
         let read = device.create_buffer(&BufferDescriptor {
             label: Some(&format!("reading buffer: {label}")),
             size: 256 * 16,
-            usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+            usage: BufferUsages::COPY_DST | BufferUsages::COPY_SRC | BufferUsages::UNIFORM,
             mapped_at_creation: false,
         });
 
@@ -221,27 +221,35 @@ impl WebGLReadWriteBuffers {
     }
 
     pub fn read_data<F>(
-        &self,
+        &mut self,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         eventloop: &EventLoopProxy<CustomEvent>,
         event_type: F,
     ) where
-        F: Send + Sync + 'static + Fn(Vec<u8>) -> CustomEvent,
+        F: Fn(Vec<u8>) -> CustomEvent + 'static,
     {
         self.copy_texture_to_buffer(encoder);
 
         let proxy = eventloop.clone();
-        {
-            wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.read.slice(..), |x| {
-                if let Some(data) = x.ok() {
-                    proxy.send_event(event_type(data.to_vec())).unwrap();
-                };
-            });
-        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.read.slice(..), move |x| {
+            let data = x.unwrap();
+            let data = data.to_vec();
+
+            tx.send(data);
+        });
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let data = rx.await.unwrap();
+
+            proxy.send_event(event_type(data));
+        });
     }
 }
+// }
 
 // pub trait SequentialRead {
 //     fn gpu_read_all(

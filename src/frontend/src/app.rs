@@ -19,6 +19,20 @@ pub enum CustomEvent {
     GPUReadAreaMissingResponse(Vec<u8>),
 }
 
+pub enum GPUEvent {
+    GPUReadVisibleTileResponse(Vec<u8>),
+    GPUReadAreaMissingResponse(Vec<u8>),
+}
+
+impl From<GPUEvent> for CustomEvent {
+    fn from(event: GPUEvent) -> Self {
+        match event {
+            GPUEvent::GPUReadVisibleTileResponse(inner) => Self::GPUReadVisibleTileResponse(inner),
+            GPUEvent::GPUReadAreaMissingResponse(inner) => Self::GPUReadAreaMissingResponse(inner),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum CustomResponseType {
     StartupTileResponse(Vec<TileRef<[u8; 4]>>),

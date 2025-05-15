@@ -12,7 +12,7 @@ use wgpu::{
 };
 use winit::event_loop::EventLoopProxy;
 
-use crate::app::CustomEvent;
+use crate::app::{CustomEvent, GPUEvent};
 
 use super::{Icosphere, Point, WebGLReadWriteBuffers};
 

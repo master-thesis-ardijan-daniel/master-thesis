@@ -851,6 +851,7 @@ dependencies = [
  "gloo-net",
  "image",
  "log",
+ "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
