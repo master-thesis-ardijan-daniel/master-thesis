@@ -21,10 +21,7 @@ type Pixel = [u8; 4];
 
 impl Dataset for EarthmapDataset {
     type Type = Pixel;
-
-    fn aggregrate(_values: &[Pixel]) -> Option<Pixel> {
-        None
-    }
+    type AggregateType = ();
 
     fn downsample(data: &Tile<Pixel>) -> Tile<Pixel> {
         let pixels: Vec<_> = data.iter().flatten().flatten().copied().collect();

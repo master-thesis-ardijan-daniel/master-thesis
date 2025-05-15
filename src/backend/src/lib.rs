@@ -45,8 +45,15 @@ pub type Bounds = Rect<f32>;
 
 pub trait Dataset {
     type Type;
+    type AggregateType;
 
-    fn aggregrate(values: &[Self::Type]) -> Option<Self::Type>;
+    fn aggregate(_values: &[Self::Type]) -> Option<Self::AggregateType> {
+        None
+    }
+    fn aggregate2(_values: &[Self::AggregateType]) -> Option<Self::AggregateType> {
+        None
+    }
+
     fn downsample(data: &Tile<Self::Type>) -> Tile<Self::Type>;
     fn default() -> Self::Type;
 
@@ -79,30 +86,30 @@ where
     result
 }
 
-pub struct TileNode<T> {
+pub struct TileNode<T, U> {
     pub bounds: Bounds,
     pub data: Option<Tile<T>>,
-    aggregate: Option<T>,
+    pub aggregate: Option<U>,
 
-    pub children: Vec<Vec<TileNode<T>>>,
+    pub children: Vec<Vec<TileNode<T, U>>>,
 }
 
 pub struct GeoTree<D>
 where
     D: Dataset,
 {
-    pub root: TileNode<D::Type>,
+    pub root: TileNode<D::Type, D::AggregateType>,
 }
 
 #[derive(Serialize)]
-pub struct TileRef<'a, T> {
+pub struct TileRef<'a, T, U> {
     pub bounds: &'a Bounds,
     pub data: Option<&'a Tile<T>>,
-    pub aggregate: Option<&'a T>,
+    pub aggregate: Option<&'a U>,
 }
 
-impl<'a, T> From<&'a TileNode<T>> for TileRef<'a, T> {
-    fn from(tile: &'a TileNode<T>) -> Self {
+impl<'a, T, U> From<&'a TileNode<T, U>> for TileRef<'a, T, U> {
+    fn from(tile: &'a TileNode<T, U>) -> Self {
         Self {
             bounds: &tile.bounds,
             data: tile.data.as_ref(),
@@ -115,13 +122,17 @@ impl<D> GeoTree<D>
 where
     D: Dataset,
 {
-    pub fn get_tiles(&self, area: Bounds, level: u32) -> Vec<TileRef<'_, D::Type>> {
-        fn inner<T>(
+    pub fn get_tiles(
+        &self,
+        area: Bounds,
+        level: u32,
+    ) -> Vec<TileRef<'_, D::Type, D::AggregateType>> {
+        fn inner<T, U>(
             level: u32,
             current_level: u32,
-            node: &TileNode<T>,
+            node: &TileNode<T, U>,
             area: Bounds,
-        ) -> Option<Vec<TileRef<'_, T>>> {
+        ) -> Option<Vec<TileRef<'_, T, U>>> {
             if node.bounds.intersects(&area) {
                 if current_level == level {
                     return Some(vec![node.into()]);
@@ -147,7 +158,8 @@ where
 impl<D> GeoTree<D>
 where
     D: Dataset,
-    D::Type: Clone,
+    D::Type: Copy,
+    D::AggregateType: Copy,
 {
     pub fn build(data: &D) -> Self {
         let mut root = TileNode {
@@ -163,7 +175,7 @@ where
         Self { root }
     }
 
-    fn propagate(parent: &mut TileNode<D::Type>) {
+    fn propagate(parent: &mut TileNode<D::Type, D::AggregateType>) {
         if parent.children.is_empty() {
             return;
         }
@@ -181,13 +193,24 @@ where
         let data = flatten(data);
 
         parent.data = Some(D::downsample(&data));
+
+        let aggregates = parent
+            .children
+            .iter()
+            .flatten()
+            .flat_map(|child| &child.aggregate)
+            .copied()
+            .collect::<Vec<_>>();
+
+        parent.aggregate = D::aggregate2(&aggregates);
     }
 
-    fn recursive_slice(parent: &mut TileNode<D::Type>, data: Tile<D::Type>) {
+    fn recursive_slice(parent: &mut TileNode<D::Type, D::AggregateType>, data: Tile<D::Type>) {
         let height = data.len();
         let width = data[0].len();
 
         if height as u32 <= D::TILE_SIZE || width as u32 <= D::TILE_SIZE {
+            parent.aggregate = D::aggregate(&data.iter().flatten().copied().collect::<Vec<_>>());
             parent.data = Some(data);
 
             return;
