@@ -1,5 +1,7 @@
+use std::{fs::File, io::Result, path::Path};
+
 use geo::{Coord, Intersects, Rect};
-use serde::Serialize;
+use serialize::{AlignedWriter, Serialize};
 
 pub mod deserialize;
 pub mod serialize;
@@ -101,7 +103,7 @@ where
     pub root: TileNode<D::Type, D::AggregateType>,
 }
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 pub struct TileRef<'a, T, U> {
     pub bounds: &'a Bounds,
     pub data: Option<&'a Tile<T>>,
@@ -220,10 +222,8 @@ where
         let child_height = height / D::CHILDREN_PER_AXIS;
 
         parent.children = (0..D::CHILDREN_PER_AXIS)
-            .into_iter()
             .map(|i| {
                 (0..D::CHILDREN_PER_AXIS)
-                    .into_iter()
                     .map(|j| {
                         let x_start = j * child_width;
                         let y_start = i * child_height;
@@ -276,5 +276,20 @@ where
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+    }
+
+    pub fn write_to_file<P>(&self, path: P) -> Result<()>
+    where
+        P: AsRef<Path>,
+        TileNode<D::Type, D::AggregateType>: Serialize,
+    {
+        let Ok(file) = File::create_new(path) else {
+            return Ok(());
+        };
+
+        let mut writer = AlignedWriter::new(&file);
+        self.root.serialize(&mut writer)?;
+
+        Ok(())
     }
 }
