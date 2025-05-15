@@ -112,6 +112,8 @@ impl State {
             bind_group_layouts: &[
                 &camera_state.bind_group_layout,
                 &earth_state.texture_bind_group_layout,
+                &earth_state.tile_visibility_buffer.bind_group_layout,
+                &earth_state.area_missing_textures_buffer.bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -362,6 +364,12 @@ impl State {
     }
 
     pub fn post_render(&mut self) {
-        self.earth_state.post_render(&self.device);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pre render encoder"),
+            });
+        self.earth_state
+            .post_render(&self.device, &self.queue, &mut encoder);
     }
 }

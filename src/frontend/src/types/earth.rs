@@ -1,5 +1,6 @@
 use common::{TileMetadata, TileRef};
 use geo::{coord, Rect};
+// use web_sys::console::log;
 // use image::math::Rect;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -63,8 +64,8 @@ pub struct EarthState {
     tile_metadata_buffer: Buffer,
     eventloop: EventLoopProxy<CustomEvent>,
     finished_creation: bool,
-    area_missing_textures_buffer: WebGLReadWriteBuffers,
-    tile_visibility_buffer: WebGLReadWriteBuffers,
+    pub area_missing_textures_buffer: WebGLReadWriteBuffers,
+    pub tile_visibility_buffer: WebGLReadWriteBuffers,
 }
 
 impl EarthState {
@@ -184,7 +185,7 @@ impl EarthState {
         }];
 
         let tile_visibility_buffer =
-            WebGLReadWriteBuffers::create(&device, "Tile visibility", 1000, false);
+            WebGLReadWriteBuffers::create(&device, "Tile visibility", 256 * 4, false);
         let area_missing_textures_buffer = WebGLReadWriteBuffers::create(
             &device,
             "Area missing textures",
@@ -403,45 +404,27 @@ impl EarthState {
 
     pub fn render(&self, render_pass: &mut RenderPass<'_>) -> u32 {
         render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
+        render_pass.set_bind_group(2, &self.tile_visibility_buffer.bind_group, &[]);
+        render_pass.set_bind_group(3, &self.area_missing_textures_buffer.bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
         self.num_indices
     }
 
-    pub fn post_render(&mut self, device: &Device) {
-        device.poll(wgpu::Maintain::Poll);
+    pub fn post_render(&mut self, device: &Device, queue: &Queue, encoder: &mut CommandEncoder) {
+        self.tile_visibility_buffer
+            .read_data(&device, &queue, encoder, &self.eventloop, |data| {
+                CustomEvent::GPUReadVisibleTileResponse(data)
+            });
 
-        let tile_visibility_data = self.tile_visiblity_buffer.slice(..);
-        let area_missing_textures_data = self.area_missing_textures_buffer.slice(..);
-        tile_visibility_data.map_async(wgpu::MapMode::Read, |_| {});
-        area_missing_textures_data.map_async(wgpu::MapMode::Read, |_| {});
-        device.poll(wgpu::Maintain::Wait); // Ensure map is resolved
-
-        let raw_tile_visibility_data;
-        let raw_area_missing_textures_data;
-
-        {
-            // this makes sure the data is copied and the mappings are dropped
-            raw_tile_visibility_data = tile_visibility_data.get_mapped_range().to_vec();
-            raw_area_missing_textures_data = area_missing_textures_data.get_mapped_range().to_vec();
-            self.tile_visiblity_buffer.unmap();
-            self.area_missing_textures_buffer.unmap();
-        }
-
-        for (i, v) in raw_tile_visibility_data.iter().enumerate() {
-            self.tiles[i].visible = Some(*v > 0);
-        }
-
-        if let Ok(data) = bytemuck::try_cast_slice(&raw_area_missing_textures_data) {
-            self.area_missing_textures = data[0];
-        }
-
-        #[cfg(feature = "debug")]
-        {
-            log::warn!("area_missing: {:#?}", self.area_missing_textures);
-            log::warn!("tile_visiblity: {:#?}", raw_tile_visibility_data);
-        }
+        self.area_missing_textures_buffer.read_data(
+            &device,
+            &queue,
+            encoder,
+            &self.eventloop,
+            |data| CustomEvent::GPUReadAreaMissingResponse(data),
+        );
     }
 }
 

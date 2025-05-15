@@ -15,6 +15,8 @@ use crate::{safe_get_subdivision_level, types::PerformanceMetrics, State};
 pub enum CustomEvent {
     CreateState(State),
     HttpResponse(CustomResponseType),
+    GPUReadVisibleTileResponse(Vec<u8>),
+    GPUReadAreaMissingResponse(Vec<u8>),
 }
 
 #[derive(Debug)]
@@ -161,6 +163,17 @@ impl ApplicationHandler<CustomEvent> for App {
                 state.earth_state.update_tile_buffer = true;
                 state.update();
                 state.window.request_redraw();
+            }
+
+            (CustomEvent::GPUReadVisibleTileResponse(data), Some(state)) => {
+                state.earth_state.tile_visibility_buffer.cpu_buffer_raw = data;
+            }
+
+            (CustomEvent::GPUReadAreaMissingResponse(data), Some(state)) => {
+                state
+                    .earth_state
+                    .area_missing_textures_buffer
+                    .cpu_buffer_raw = data;
             }
             _ => {}
         }
