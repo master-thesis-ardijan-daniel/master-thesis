@@ -1,3 +1,4 @@
+use glam::Vec3Swizzles;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Origin3d, Queue,
@@ -5,8 +6,9 @@ use wgpu::{
     TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
     TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
 };
+pub type Point = glam::Vec3;
 
-use super::{Icosphere, Point};
+use super::Icosphere;
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -221,13 +223,30 @@ impl EarthState {
 }
 
 fn vert_transform(mut v: Point) -> Point {
+    const PI: f32 = std::f32::consts::PI;
+    pub fn to_lat_lon_range(point: Point) -> (f32, f32, f32) {
+        let lenxy = point.xy().length();
+        let range = point.length();
+
+        if lenxy < 1.0e-10 {
+            if point.z > 0. {
+                return (PI / 2., 0.0, range);
+            }
+            (-(PI / 2.), 0.0, range)
+        } else {
+            let lat = point.z.atan2(lenxy);
+            let lon = point.y.atan2(point.x);
+            (lat, lon, range)
+        }
+    }
+
     v /= v.length();
     // const EARTH_RADIUS: 6378.137;
     const EARTH_RADIUS: f32 = 1.;
     // const FLATTENING: f32 = 1. / 298.257;
     const FLATTENING: f32 = 0.;
     // // get polar from cartesian
-    let (lat, _lon, _rng) = v.to_lat_lon_range();
+    let (lat, _lon, _rng) = to_lat_lon_range(v);
     // // get ellipsoid radius from polar
     let a = EARTH_RADIUS;
     let f = FLATTENING;
