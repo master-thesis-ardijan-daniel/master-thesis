@@ -1,5 +1,3 @@
-pub mod hashable_point;
-pub use hashable_point::*;
 pub mod icosphere;
 pub use icosphere::*;
 pub mod earth;

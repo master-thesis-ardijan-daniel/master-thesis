@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{camera::CameraState, types::earth::EarthState};
+use crate::{
+    camera::{Camera, CameraState, Projection},
+    types::{earth::EarthState, Point},
+};
 use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
@@ -32,6 +35,110 @@ pub struct State {
     pub earth_state: EarthState,
 
     pub delta: Duration,
+}
+
+fn ray_sphere_intersect(
+    origin_sphere: Point,
+    line_point: Point,
+    line_dir_vec: Point, // should be normalized
+    radius: f32,
+) -> Option<Point> {
+    let oc = origin_sphere - line_point;
+    let a = 1.0; // dir.dot(&dir) == 1 if normalized
+    let b = 2.0 * oc.dot(line_dir_vec);
+    let c = oc.dot(oc) - radius * radius;
+    let discriminant = b * b - 4.0 * a * c;
+
+    if discriminant < 0.0 {
+        return None; // No intersection, make it so that it calculates the closest intersection along the line which is orthogonal to input line which crosses the origin
+    }
+
+    let sqrt_disc = discriminant.sqrt();
+    let t = (-b + sqrt_disc.abs()) / (2.0 * a);
+
+    if t <= 0.0 {
+        return None;
+    };
+
+    Some(origin_sphere + line_dir_vec * t)
+}
+
+fn calculate_camera_earth_view(
+    camera_projection: Projection,
+    camera: Camera,
+    earth_position: Point,
+) -> ((f32,f32),(f32,f32)) {
+    let fov = camera_projection.fovy;
+    let camera_pos = camera.orientation.xyz();
+
+    // Given camera direction, create two vectors which represent the corners of the visible area
+    // use the camera view vector and rotate it by fov angle in positive and negative using an orthogonal vector as the axis of rotation
+    //
+    //
+
+    let towards_earth_center = (earth_position - camera_pos).normalize();
+    let (cam_orth_vector_1, cam_orth_vector_2) = towards_earth_center.any_orthonormal_pair();
+
+    let ray_rot_matrix_1 = glam::Mat3::from_axis_angle(cam_orth_vector_1, -fov); //rotate along one axis
+    let ray_rot_matrix_2 = glam::Mat3::from_axis_angle(cam_orth_vector_2, -fov); //then the other
+    let ray_rot_matrix_3 = glam::Mat3::from_axis_angle(cam_orth_vector_1, fov);
+    let ray_rot_matrix_4 = glam::Mat3::from_axis_angle(cam_orth_vector_2, fov);
+
+    let fov_ray_1 = ray_rot_matrix_2 * (ray_rot_matrix_1 * towards_earth_center); // for example top left corner
+    let fov_ray_2 = ray_rot_matrix_4 * (ray_rot_matrix_3 * towards_earth_center); // for example bottom right corner
+
+    const WORLD_SPACE_EARTH_RADIUS: f32 = 1.; // Does not need to be accurate
+    let intersection_on_surface_1 = ray_sphere_intersect(
+        earth_position,
+        camera_pos,
+        fov_ray_1,
+        WORLD_SPACE_EARTH_RADIUS,
+    );
+    let intersection_on_surface_2 = ray_sphere_intersect(
+        earth_position,
+        camera_pos,
+        fov_ray_2,
+        WORLD_SPACE_EARTH_RADIUS,
+    );
+
+    let p1 = convert_point_on_surface_to_lat_lon(intersection_on_surface_1.unwrap());
+    let p2 = convert_point_on_surface_to_lat_lon(intersection_on_surface_2.unwrap());
+
+    let nort_west = (p1.0.max(p2.0), p1.1.min(p2.1));
+    let south_east = (p1.0.min(p2.0), p1.1.max(p2.1));
+
+
+    (nort_west,south_east)
+}
+
+fn convert_point_on_surface_to_lat_lon(point: Point) -> (f32, f32) {
+    point.x.atan2(-point.y)
+    todo!()
+}
+
+
+// for each frame on update, use the visible area struct to check which tiles are visible and which are not.
+// Tiles which are not visible can be marked and can be replaced.
+//
+// 
+// you know which level you are on, and how many tiles there should be on that level, thus you can calculate which tile you need.
+//
+//
+// 
+//
+//
+
+// Given an area, defined by 2 coordinates we can find which tiles should be in the buffer
+// then we can check with a hashmap or something to figure out if it actually is, and thus find the missing ones.
+
+fn tile_fetch_logic(level: u32, n_tiles_lat: u32, n_tiles_lon: u32, north_west: (f32,f32),south_east: (f32,f32)){
+
+    let lat_step = 180./n_tiles_lat as f32;
+    let lon_step = 360./n_tiles_lat as f32;
+
+    let north_west_x = north_west.1 / lat_step; 
+    let north_west_y = north_west / 
+    let tiles_which_should_be_visible = 
 }
 
 impl State {

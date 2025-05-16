@@ -2,6 +2,8 @@ use std::{borrow::Cow, collections::HashMap};
 
 use crate::types::Point;
 
+use super::HashablePoint;
+
 pub const PHI: f32 = 1.618_034_f32;
 
 type Vertex = Point;
@@ -135,13 +137,13 @@ impl Icosphere {
         // This cache only works as long as we use the even vertecies as keys
         // otherwise we can get rounding errors, thus its important not to mutate them
         // or change the algorithm in such a way that they change.
-        let mut edges_with_odd_verts_cache: HashMap<[Vertex; 2], u32> = HashMap::new();
+        let mut edges_with_odd_verts_cache: HashMap<[HashablePoint; 2], u32> = HashMap::new();
 
-        let sort_edge = |a: Vertex, b: Vertex| -> [Vertex; 2] {
+        let sort_edge = |a: Vertex, b: Vertex| -> [HashablePoint; 2] {
             if a.to_array() < b.to_array() {
-                return [a, b];
+                return [a.into(), b.into()];
             }
-            [b, a]
+            [b.into(), a.into()]
         };
         // let mut new_vertecies = vec![];
 
