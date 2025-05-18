@@ -4,6 +4,7 @@ use crate::{
     camera::{Camera, CameraState, Projection},
     types::{earth::EarthState, Point},
 };
+use geo::Polygon;
 use glam::{Mat3, Vec3, Vec4Swizzles};
 use touch::TouchState;
 use web_time::Duration;
@@ -68,7 +69,7 @@ fn calculate_camera_earth_view_bounding_box(
     camera_projection: Projection,
     camera: Camera,
     earth_position: Point,
-) -> ((f32, f32), (f32, f32)) {
+) -> Vec<geo::Polygon> {
     const MAX_BOUNDS: ((f32, f32), (f32, f32)) = ((90., -180.), (-90., -180.));
     let fov = camera_projection.fovy;
     let camera_pos = camera.orientation.xyz();
@@ -111,7 +112,7 @@ fn calculate_camera_earth_view_bounding_box(
 
     const WORLD_SPACE_EARTH_RADIUS: f32 = 1.; // Does not need to be accurate
 
-    let surface_intersection_points = fov_rays
+    let mut surface_intersection_points = fov_rays
         .iter()
         .filter_map(|ray| {
             Some(convert_point_on_surface_to_lat_lon(ray_sphere_intersect(
@@ -123,10 +124,6 @@ fn calculate_camera_earth_view_bounding_box(
         })
         .collect::<Vec<(f32, f32)>>();
 
-    if surface_intersection_points.is_empty() {
-        return MAX_BOUNDS;
-    }
-
     let north_pole = Vec3::new(0., 0., 1.);
     let south_pole = Vec3::new(0., 0., -1.);
 
@@ -136,59 +133,69 @@ fn calculate_camera_earth_view_bounding_box(
     let north_pole_is_visible = is_ray_in_cone(ray_to_north_pole, camera_direction_vector, fov);
     let south_pole_is_visible = is_ray_in_cone(ray_to_south_pole, camera_direction_vector, fov);
 
-    let nw_lat = if north_pole_is_visible {
-        90.
-    } else {
-        surface_intersection_points
-            .iter()
-            .fold(surface_intersection_points[0].0, |a, &b| a.max(b.0))
-    };
+    if surface_intersection_points.is_empty() || south_pole_is_visible && north_pole_is_visible {
+        return MAX_BOUNDS;
+    }
 
-    let se_lat = if south_pole_is_visible {
-        -90.
-    } else {
-        surface_intersection_points
-            .iter()
-            .fold(surface_intersection_points[0].0, |a, &b| a.min(b.0))
-    };
-
-    // Find longest distance to other points
-    let max_diff = surface_intersection_points
-        .iter()
-        .fold(0.0, |acc, &(_, lon)| {
-            surface_intersection_points
-                .iter()
-                .map(|&(_, other)| {
-                    let diff = (lon - other).abs();
-                    diff.min(360. - diff)
-                })
-                .fold(acc, f32::max)
-        });
-
-    let (nw_lon, se_lon) = if max_diff > 180. {
-        // Meridian crossing: find min/max considering wraparound
-        let mut min_lon = surface_intersection_points[0].1;
-        let mut max_lon = surface_intersection_points[0].1;
-        for &(_, lon) in surface_intersection_points.iter().skip(1) {
-            if (lon - min_lon + 360.) % 360. > 180. {
-                min_lon = lon;
-            }
-            if (max_lon - lon + 360.) % 360. > 180. {
-                max_lon = lon;
-            }
+    if north_pole_is_visible {
+        for p in surface_intersection_points.clone() {
+            surface_intersection_points.push((90., p.1));
         }
-        (min_lon, max_lon)
-    } else {
-        let min_lon = surface_intersection_points
-            .iter()
-            .fold(surface_intersection_points[0].1, |a, &(_, b)| a.min(b));
-        let max_lon = surface_intersection_points
-            .iter()
-            .fold(surface_intersection_points[0].1, |a, &(_, b)| a.max(b));
-        (min_lon, max_lon)
-    };
+    }
 
-    ((nw_lat, nw_lon), (se_lat, se_lon))
+    if south_pole_is_visible {
+        for p in surface_intersection_points.clone() {
+            surface_intersection_points.push((90., p.1));
+        }
+    }
+
+    // Crossing the meridian
+    if surface_intersection_points[0].1 > surface_intersection_points[1].1 {
+
+        // let box_1=Polygon::new(exterior, vec![])
+    }
+
+    todo!();
+
+    // // Find longest distance to other points
+    // let max_diff = surface_intersection_points
+    //     .iter()
+    //     .fold(0.0, |acc, &(_, lon)| {
+    //         surface_intersection_points
+    //             .iter()
+    //             .map(|&(_, other)| {
+    //                 let diff = (lon - other).abs();
+    //                 diff.min(360. - diff)
+    //             })
+    //             .fold(acc, f32::max)
+    //     });
+
+    // let mut view_boxes = vec![];
+
+    // let (nw_lon, se_lon) = if max_diff > 180. {
+    //     // Meridian crossing: find min/max considering wraparound
+    //     let mut min_lon = surface_intersection_points[0].1;
+    //     let mut max_lon = surface_intersection_points[0].1;
+    //     for &(_, lon) in surface_intersection_points.iter().skip(1) {
+    //         if (lon - min_lon + 360.) % 360. > 180. {
+    //             min_lon = lon;
+    //         }
+    //         if (max_lon - lon + 360.) % 360. > 180. {
+    //             max_lon = lon;
+    //         }
+    //     }
+    //     (min_lon, max_lon)
+    // } else {
+    //     let min_lon = surface_intersection_points
+    //         .iter()
+    //         .fold(surface_intersection_points[0].1, |a, &(_, b)| a.min(b));
+    //     let max_lon = surface_intersection_points
+    //         .iter()
+    //         .fold(surface_intersection_points[0].1, |a, &(_, b)| a.max(b));
+    //     (min_lon, max_lon)
+    // };
+
+    // ((nw_lat, nw_lon), (se_lat, se_lon))
 }
 
 fn convert_point_on_surface_to_lat_lon(point: Point) -> (f32, f32) {
