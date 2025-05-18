@@ -1,4 +1,5 @@
-use glam::Vec3Swizzles;
+use geo::{CoordsIter, LineString, Polygon};
+use glam::{Mat3, Vec3, Vec3Swizzles, Vec4Swizzles};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Origin3d, Queue,
@@ -7,6 +8,8 @@ use wgpu::{
     TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
 };
 pub type Point = glam::Vec3;
+
+use crate::camera::{Camera, Projection};
 
 use super::Icosphere;
 
@@ -154,8 +157,17 @@ impl EarthState {
     pub fn set_subdivision_level(&mut self, level: usize) {
         self.current_subdivision_level = level;
     }
+
     pub fn set_output_to_lines(&mut self, output_as_lines: bool) {
         self.current_output_as_lines = output_as_lines;
+    }
+
+    pub fn _t(&mut self, projection: &Projection, camera: &Camera) {
+        let polygons = calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
+
+        let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
+
+        // let tile =
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
@@ -262,4 +274,235 @@ fn vert_transform(mut v: Point) -> Point {
     //     log::warn!("r {:?}", r);
     // }
     v * r
+}
+fn ray_sphere_intersect(
+    origin_sphere: Point,
+    line_point: Point,
+    line_dir_vec: Point, // should be normalized
+    radius: f32,
+) -> Option<Point> {
+    let oc = origin_sphere - line_point;
+    let a = 1.0; // dir.dot(&dir) == 1 if normalized
+    let b = 2.0 * oc.dot(line_dir_vec);
+    let c = oc.dot(oc) - radius * radius;
+    let discriminant = b * b - 4.0 * a * c;
+
+    if discriminant < 0.0 {
+        return None; // No intersection, make it so that it calculates the closest intersection along the line which is orthogonal to input line which crosses the origin
+    }
+
+    let sqrt_disc = discriminant.sqrt();
+    let t = (-b + sqrt_disc.abs()) / (2.0 * a);
+
+    if t <= 0.0 {
+        return None;
+    };
+
+    Some(origin_sphere + line_dir_vec * t)
+}
+
+fn calculate_camera_earth_view_bounding_box(
+    camera_projection: &Projection,
+    camera: &Camera,
+    earth_position: Point,
+) -> Vec<geo::Polygon<f32>> {
+    const MAX_BOUNDS: ((f32, f32), (f32, f32)) = ((90., -180.), (-90., -180.));
+    let fov = camera_projection.fovy;
+    let camera_pos = camera.orientation.xyz();
+
+    // Given camera direction, create two vectors which represent the corners of the visible area
+    // use the camera view vector and rotate it by fov angle in positive and negative using an orthogonal vector as the axis of rotation
+    //
+    //
+
+    let camera_direction_vector = camera.calc_matrix().col(3).xyz();
+    let (cam_orth_vector_1, cam_orth_vector_2) = camera_direction_vector.any_orthonormal_pair();
+
+    let rotation_matrixes = [
+        // Top-left: -fovx/2, +fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+        ),
+        // Top-right: +fovx/2, +fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+        ),
+        // Bottom-left: -fovx/2, -fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+        ),
+        // Bottom-right: +fovx/2, -fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+        ),
+    ];
+
+    let mut fov_rays = [Vec3::ZERO; 4];
+    for (i, (rm_1, rm_2)) in rotation_matrixes.iter().enumerate() {
+        fov_rays[i] = *rm_2 * (*rm_1 * camera_direction_vector);
+    }
+
+    const WORLD_SPACE_EARTH_RADIUS: f32 = 1.; // Does not need to be accurate
+
+    let surface_intersection_points = fov_rays
+        .iter()
+        .filter_map(|ray| {
+            Some(convert_point_on_surface_to_lat_lon(ray_sphere_intersect(
+                earth_position,
+                camera_pos,
+                *ray,
+                WORLD_SPACE_EARTH_RADIUS,
+            )?))
+        })
+        .collect::<Vec<(f32, f32)>>();
+
+    let north_pole = Vec3::new(0., 0., 1.);
+    let south_pole = Vec3::new(0., 0., -1.);
+
+    let ray_to_north_pole = camera_pos - north_pole;
+    let ray_to_south_pole = camera_pos - south_pole;
+
+    let north_pole_is_visible = is_ray_in_cone(ray_to_north_pole, camera_direction_vector, fov);
+    let south_pole_is_visible = is_ray_in_cone(ray_to_south_pole, camera_direction_vector, fov);
+
+    if surface_intersection_points.is_empty() || south_pole_is_visible && north_pole_is_visible {
+        // return MAX_BOUNDS;
+        // return vec![Polygon::new(vec![MA], vec![])]
+        todo!("Return max bounds polygon")
+    }
+
+    let mut out = Vec::new();
+
+    // Crossing the meridian
+    if surface_intersection_points[0].1 > surface_intersection_points[1].1 {
+        out.push(Polygon::new(
+            LineString::from(vec![
+                surface_intersection_points[0],
+                (surface_intersection_points[0].0, 180.),
+                (surface_intersection_points[3].0, 180.),
+                surface_intersection_points[3],
+            ]),
+            vec![],
+        ));
+
+        out.push(Polygon::new(
+            LineString::from(vec![
+                surface_intersection_points[1],
+                (surface_intersection_points[1].0, -180.),
+                (surface_intersection_points[2].0, -180.),
+                surface_intersection_points[2],
+            ]),
+            vec![],
+        ));
+    }
+
+    if north_pole_is_visible {
+        for polygon in &mut out {
+            for p in polygon.clone().coords_iter() {
+                polygon.exterior_mut(|l| l.0.push((p.x, 90.).into()));
+            }
+        }
+    }
+
+    if south_pole_is_visible {
+        for polygon in &mut out {
+            for p in polygon.clone().coords_iter() {
+                polygon.exterior_mut(|l| l.0.push((p.x, -90.).into()));
+            }
+        }
+    }
+
+    out
+    // // Find longest distance to other points
+    // let max_diff = surface_intersection_points
+    //     .iter()
+    //     .fold(0.0, |acc, &(_, lon)| {
+    //         surface_intersection_points
+    //             .iter()
+    //             .map(|&(_, other)| {
+    //                 let diff = (lon - other).abs();
+    //                 diff.min(360. - diff)
+    //             })
+    //             .fold(acc, f32::max)
+    //     });
+
+    // let mut view_boxes = vec![];
+
+    // let (nw_lon, se_lon) = if max_diff > 180. {
+    //     // Meridian crossing: find min/max considering wraparound
+    //     let mut min_lon = surface_intersection_points[0].1;
+    //     let mut max_lon = surface_intersection_points[0].1;
+    //     for &(_, lon) in surface_intersection_points.iter().skip(1) {
+    //         if (lon - min_lon + 360.) % 360. > 180. {
+    //             min_lon = lon;
+    //         }
+    //         if (max_lon - lon + 360.) % 360. > 180. {
+    //             max_lon = lon;
+    //         }
+    //     }
+    //     (min_lon, max_lon)
+    // } else {
+    //     let min_lon = surface_intersection_points
+    //         .iter()
+    //         .fold(surface_intersection_points[0].1, |a, &(_, b)| a.min(b));
+    //     let max_lon = surface_intersection_points
+    //         .iter()
+    //         .fold(surface_intersection_points[0].1, |a, &(_, b)| a.max(b));
+    //     (min_lon, max_lon)
+    // };
+
+    // ((nw_lat, nw_lon), (se_lat, se_lon))
+}
+
+fn convert_point_on_surface_to_lat_lon(point: Point) -> (f32, f32) {
+    let lon = point.x.atan2(-point.y).to_degrees();
+    let lat = point.z.asin().to_degrees();
+
+    (lat - 90., lon - 180.)
+}
+
+fn is_ray_in_cone(ray_dir: Point, cone_dir: Point, cone_half_angle_rad: f32) -> bool {
+    let ray_dir = ray_dir.normalize();
+    let cone_dir = cone_dir.normalize();
+    let cos_half_angle = cone_half_angle_rad.cos();
+
+    ray_dir.dot(cone_dir) >= cos_half_angle
+}
+
+// fn linear_lat_lon_to_indicies(lat: f32,lon:f32)->{
+
+// }
+
+// for each frame on update, use the visible area struct to check which tiles are visible and which are not.
+// Tiles which are not visible can be marked and can be replaced.
+//
+//
+// you know which level you are on, and how many tiles there should be on that level, thus you can calculate which tile you need.
+//
+//
+//
+//
+//
+
+// Given an area, defined by 2 coordinates we can find which tiles should be in the buffer
+// then we can check with a hashmap or something to figure out if it actually is, and thus find the missing ones.
+
+fn tile_fetch_logic(
+    level: u32,
+    n_tiles_lat: u32,
+    n_tiles_lon: u32,
+    north_west: (f32, f32),
+    south_east: (f32, f32),
+) {
+    let lat_step = 180. / n_tiles_lat as f32;
+    let lon_step = 360. / n_tiles_lat as f32;
+
+    let north_west_x = north_west.1 / lat_step;
+    let north_west_y = north_west.0 / lon_step;
+
+    let tiles_which_should_be_visible = todo!();
 }
