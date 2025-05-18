@@ -1,0 +1,11 @@
+[package]
+name = "common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = {version="*", features= ["derive"]}
+geo.workspace = true
+bytemuck.workspace = true
