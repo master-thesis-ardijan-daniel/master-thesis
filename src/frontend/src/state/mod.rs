@@ -1,13 +1,13 @@
 use std::{f32::consts::PI, sync::Arc};
 
 use crate::{
+    app::CustomEvent,
     camera::{Camera, CameraState, Projection},
-    types::{earth::EarthState, Point},
-app::CustomEvent,
+    types::earth::EarthState,
 };
+use depth_texture::DepthTexture;
 use geo::{CoordsIter, LineString, Polygon};
 use glam::{Mat3, Vec3, Vec4Swizzles};
-use depth_texture::DepthTexture;
 use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
@@ -16,6 +16,8 @@ use winit::{event_loop::EventLoopProxy, window::Window};
 mod depth_texture;
 mod input;
 mod touch;
+
+type Point = glam::Vec3;
 
 pub enum AnimationState {
     Animating,
@@ -254,6 +256,10 @@ impl State {
 
     pub fn update(&mut self) {
         self.earth_state.update(&self.queue, &self.device);
+        self.earth_state._t(
+            &self.camera_state.controller.projection,
+            &self.camera_state.controller.camera,
+        );
 
         if let AnimationState::Animating = self.camera_state.update(&self.queue, self.delta) {
             self.window.request_redraw();

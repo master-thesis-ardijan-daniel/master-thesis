@@ -26,7 +26,7 @@ pub struct Camera {
     current_angle: f32,
 
     pub orientation: Quat,
-    current_orientation: Quat,
+    pub current_orientation: Quat,
 
     angular_velocity: Quat,
     friction: f32,

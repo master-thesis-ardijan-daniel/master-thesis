@@ -1,7 +1,7 @@
+use common::{Bounds, TileMetadata, TileResponse};
+use geo::{coord, BoundingRect, Rect};
 use geo::{CoordsIter, LineString, Polygon};
-use glam::{Mat3, Vec3, Vec3Swizzles, Vec4Swizzles};
-use common::{TileMetadata, TileResponse};
-use geo::{coord, Rect};
+use glam::{Mat3, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 // use image::math::Rect;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -11,8 +11,14 @@ use wgpu::{
     TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat,
     VertexStepMode,
 };
+use winit::event_loop::EventLoopProxy;
 
-use super::{Icosphere, Point};
+use crate::app::CustomEvent;
+use crate::camera::{Camera, Projection};
+
+use super::Icosphere;
+
+type Point = Vec3;
 
 const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
@@ -312,18 +318,30 @@ impl EarthState {
     }
 
     pub fn _t(&mut self, projection: &Projection, camera: &Camera) {
+        self.update_tile_buffer = true;
         let polygons = calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
+        let mut out = Vec::new();
+        for polygon in &polygons {
+            for point in polygon.coords_iter() {
+                let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
 
-        // let tile =
+                let tile = TileResponse {
+                    data: texture,
+                    bounds: Bounds::new(point, (point.x + 1., point.y + 1.).into()),
+                };
+                out.push(tile);
+            }
+        }
+
+        self.tiles = out;
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
         if !self.finished_creation {
             self.finished_creation = true;
             // the response handler will set self.update_tiles_buffer to true;
-            self.fetch_tiles("/tiles".to_string());
+            // self.fetch_tiles("/tiles".to_string());
         }
 
         if self.update_tile_buffer {
@@ -452,36 +470,40 @@ fn calculate_camera_earth_view_bounding_box(
 ) -> Vec<geo::Polygon<f32>> {
     const MAX_BOUNDS: ((f32, f32), (f32, f32)) = ((90., -180.), (-90., -180.));
     let fov = camera_projection.fovy;
-    let camera_pos = camera.orientation.xyz();
+    let camera_pos = (camera.current_orientation.xyz() + (Vec3::Z * camera.radius)).normalize();
 
     // Given camera direction, create two vectors which represent the corners of the visible area
     // use the camera view vector and rotate it by fov angle in positive and negative using an orthogonal vector as the axis of rotation
     //
     //
 
-    let camera_direction_vector = camera.calc_matrix().col(3).xyz();
+    // let camera_direction_vector = (camera.calc_matrix() * -Vec4::Z).xyz();
+    let camera_direction_vector = camera_pos;
     let (cam_orth_vector_1, cam_orth_vector_2) = camera_direction_vector.any_orthonormal_pair();
+
+    // #[cfg(feature = "debug")]
+    // log::warn!("camera: {:#?}", camera_pos);
 
     let rotation_matrixes = [
         // Top-left: -fovx/2, +fovy/2
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 4.0),
         ),
         // Top-right: +fovx/2, +fovy/2
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 4.0),
         ),
         // Bottom-left: -fovx/2, -fovy/2
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 4.0),
         ),
         // Bottom-right: +fovx/2, -fovy/2
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 4.0),
         ),
     ];
 
@@ -515,8 +537,11 @@ fn calculate_camera_earth_view_bounding_box(
 
     if surface_intersection_points.is_empty() || south_pole_is_visible && north_pole_is_visible {
         // return MAX_BOUNDS;
+        // todo!("Return max bounds polygon")
+        #[cfg(feature = "debug")]
+        log::warn!("Hit max bounds");
         // return vec![Polygon::new(vec![MA], vec![])]
-        todo!("Return max bounds polygon")
+        return vec![];
     }
 
     let mut out = Vec::new();
@@ -559,6 +584,9 @@ fn calculate_camera_earth_view_bounding_box(
             }
         }
     }
+
+    #[cfg(feature = "debug")]
+    log::warn!("{:#?}", out);
 
     out
     // // Find longest distance to other points

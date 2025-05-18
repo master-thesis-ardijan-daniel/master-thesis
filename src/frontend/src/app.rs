@@ -156,7 +156,7 @@ impl ApplicationHandler<CustomEvent> for App {
                 CustomEvent::HttpResponse(CustomResponseType::StartupTileResponse(tiles)),
                 Some(state),
             ) => {
-                state.earth_state.tiles = tiles;
+                // state.earth_state.tiles = tiles;
                 state.earth_state.update_tile_buffer = true;
                 state.update();
                 state.window.request_redraw();

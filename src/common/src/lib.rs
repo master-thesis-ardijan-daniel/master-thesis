@@ -24,7 +24,7 @@ pub struct TileRefResponse<'a, T> {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TileMetadata {
     pub nw_lat: f32,
     pub nw_lon: f32,
