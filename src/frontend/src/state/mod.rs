@@ -4,6 +4,7 @@ use crate::{
     camera::{Camera, CameraState, Projection},
     types::{earth::EarthState, Point},
 };
+use glam::{Mat3, Vec3, Vec4Swizzles};
 use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
@@ -63,11 +64,12 @@ fn ray_sphere_intersect(
     Some(origin_sphere + line_dir_vec * t)
 }
 
-fn calculate_camera_earth_view(
+fn calculate_camera_earth_view_bounding_box(
     camera_projection: Projection,
     camera: Camera,
     earth_position: Point,
-) -> ((f32,f32),(f32,f32)) {
+) -> ((f32, f32), (f32, f32)) {
+    const MAX_BOUNDS: ((f32, f32), (f32, f32)) = ((90., -180.), (-90., -180.));
     let fov = camera_projection.fovy;
     let camera_pos = camera.orientation.xyz();
 
@@ -76,74 +78,166 @@ fn calculate_camera_earth_view(
     //
     //
 
-    let towards_earth_center = (earth_position - camera_pos).normalize();
-    let (cam_orth_vector_1, cam_orth_vector_2) = towards_earth_center.any_orthonormal_pair();
+    let camera_direction_vector = camera.calc_matrix().col(3).xyz();
+    let (cam_orth_vector_1, cam_orth_vector_2) = camera_direction_vector.any_orthonormal_pair();
 
-    let ray_rot_matrix_1 = glam::Mat3::from_axis_angle(cam_orth_vector_1, -fov); //rotate along one axis
-    let ray_rot_matrix_2 = glam::Mat3::from_axis_angle(cam_orth_vector_2, -fov); //then the other
-    let ray_rot_matrix_3 = glam::Mat3::from_axis_angle(cam_orth_vector_1, fov);
-    let ray_rot_matrix_4 = glam::Mat3::from_axis_angle(cam_orth_vector_2, fov);
+    let rotation_matrixes = [
+        // Top-left: -fovx/2, +fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+        ),
+        // Top-right: +fovx/2, +fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+        ),
+        // Bottom-left: -fovx/2, -fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+        ),
+        // Bottom-right: +fovx/2, -fovy/2
+        (
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+        ),
+    ];
 
-    let fov_ray_1 = ray_rot_matrix_2 * (ray_rot_matrix_1 * towards_earth_center); // for example top left corner
-    let fov_ray_2 = ray_rot_matrix_4 * (ray_rot_matrix_3 * towards_earth_center); // for example bottom right corner
+    let mut fov_rays = [Vec3::ZERO; 4];
+    for (i, (rm_1, rm_2)) in rotation_matrixes.iter().enumerate() {
+        fov_rays[i] = *rm_2 * (*rm_1 * camera_direction_vector);
+    }
 
     const WORLD_SPACE_EARTH_RADIUS: f32 = 1.; // Does not need to be accurate
-    let intersection_on_surface_1 = ray_sphere_intersect(
-        earth_position,
-        camera_pos,
-        fov_ray_1,
-        WORLD_SPACE_EARTH_RADIUS,
-    );
-    let intersection_on_surface_2 = ray_sphere_intersect(
-        earth_position,
-        camera_pos,
-        fov_ray_2,
-        WORLD_SPACE_EARTH_RADIUS,
-    );
 
-    let p1 = convert_point_on_surface_to_lat_lon(intersection_on_surface_1.unwrap());
-    let p2 = convert_point_on_surface_to_lat_lon(intersection_on_surface_2.unwrap());
+    let surface_intersection_points = fov_rays
+        .iter()
+        .filter_map(|ray| {
+            Some(convert_point_on_surface_to_lat_lon(ray_sphere_intersect(
+                earth_position,
+                camera_pos,
+                *ray,
+                WORLD_SPACE_EARTH_RADIUS,
+            )?))
+        })
+        .collect::<Vec<(f32, f32)>>();
 
-    let nort_west = (p1.0.max(p2.0), p1.1.min(p2.1));
-    let south_east = (p1.0.min(p2.0), p1.1.max(p2.1));
+    if surface_intersection_points.is_empty() {
+        return MAX_BOUNDS;
+    }
 
+    let north_pole = Vec3::new(0., 0., 1.);
+    let south_pole = Vec3::new(0., 0., -1.);
 
-    (nort_west,south_east)
+    let ray_to_north_pole = camera_pos - north_pole;
+    let ray_to_south_pole = camera_pos - south_pole;
+
+    let north_pole_is_visible = is_ray_in_cone(ray_to_north_pole, camera_direction_vector, fov);
+    let south_pole_is_visible = is_ray_in_cone(ray_to_south_pole, camera_direction_vector, fov);
+
+    let nw_lat = if north_pole_is_visible {
+        90.
+    } else {
+        surface_intersection_points
+            .iter()
+            .fold(surface_intersection_points[0].0, |a, &b| a.max(b.0))
+    };
+
+    let se_lat = if south_pole_is_visible {
+        -90.
+    } else {
+        surface_intersection_points
+            .iter()
+            .fold(surface_intersection_points[0].0, |a, &b| a.min(b.0))
+    };
+
+    // Find longest distance to other points
+    let max_diff = surface_intersection_points
+        .iter()
+        .fold(0.0, |acc, &(_, lon)| {
+            surface_intersection_points
+                .iter()
+                .map(|&(_, other)| {
+                    let diff = (lon - other).abs();
+                    diff.min(360. - diff)
+                })
+                .fold(acc, f32::max)
+        });
+
+    let (nw_lon, se_lon) = if max_diff > 180. {
+        // Meridian crossing: find min/max considering wraparound
+        let mut min_lon = surface_intersection_points[0].1;
+        let mut max_lon = surface_intersection_points[0].1;
+        for &(_, lon) in surface_intersection_points.iter().skip(1) {
+            if (lon - min_lon + 360.) % 360. > 180. {
+                min_lon = lon;
+            }
+            if (max_lon - lon + 360.) % 360. > 180. {
+                max_lon = lon;
+            }
+        }
+        (min_lon, max_lon)
+    } else {
+        let min_lon = surface_intersection_points
+            .iter()
+            .fold(surface_intersection_points[0].1, |a, &(_, b)| a.min(b));
+        let max_lon = surface_intersection_points
+            .iter()
+            .fold(surface_intersection_points[0].1, |a, &(_, b)| a.max(b));
+        (min_lon, max_lon)
+    };
+
+    ((nw_lat, nw_lon), (se_lat, se_lon))
 }
 
 fn convert_point_on_surface_to_lat_lon(point: Point) -> (f32, f32) {
-
     let lon = point.x.atan2(-point.y).to_degrees();
     let lat = point.z.asin().to_degrees();
 
-    ( lat-90.,lon-180.,)
+    (lat - 90., lon - 180.)
 }
 
+fn is_ray_in_cone(ray_dir: Point, cone_dir: Point, cone_half_angle_rad: f32) -> bool {
+    let ray_dir = ray_dir.normalize();
+    let cone_dir = cone_dir.normalize();
+    let cos_half_angle = cone_half_angle_rad.cos();
+
+    ray_dir.dot(cone_dir) >= cos_half_angle
+}
+
+// fn linear_lat_lon_to_indicies(lat: f32,lon:f32)->{
+
+// }
 
 // for each frame on update, use the visible area struct to check which tiles are visible and which are not.
 // Tiles which are not visible can be marked and can be replaced.
 //
-// 
+//
 // you know which level you are on, and how many tiles there should be on that level, thus you can calculate which tile you need.
 //
 //
-// 
+//
 //
 //
 
 // Given an area, defined by 2 coordinates we can find which tiles should be in the buffer
 // then we can check with a hashmap or something to figure out if it actually is, and thus find the missing ones.
 
-fn tile_fetch_logic(level: u32, n_tiles_lat: u32, n_tiles_lon: u32, north_west: (f32,f32),south_east: (f32,f32)){
+fn tile_fetch_logic(
+    level: u32,
+    n_tiles_lat: u32,
+    n_tiles_lon: u32,
+    north_west: (f32, f32),
+    south_east: (f32, f32),
+) {
+    let lat_step = 180. / n_tiles_lat as f32;
+    let lon_step = 360. / n_tiles_lat as f32;
 
-    let lat_step = 180./n_tiles_lat as f32;
-    let lon_step = 360./n_tiles_lat as f32;
-
-    let north_west_x = north_west.1 / lat_step; 
+    let north_west_x = north_west.1 / lat_step;
     let north_west_y = north_west.0 / lon_step;
 
-    
-    let tiles_which_should_be_visible = 
+    let tiles_which_should_be_visible = todo!();
 }
 
 impl State {
