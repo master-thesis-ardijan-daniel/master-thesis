@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{f32::consts::PI, sync::Arc};
 
 use crate::{
     camera::{Camera, CameraState, Projection},
@@ -112,8 +112,11 @@ fn calculate_camera_earth_view(
 }
 
 fn convert_point_on_surface_to_lat_lon(point: Point) -> (f32, f32) {
-    point.x.atan2(-point.y)
-    todo!()
+
+    let lon = point.x.atan2(-point.y).to_degrees();
+    let lat = point.z.asin().to_degrees();
+
+    ( lat-90.,lon-180.,)
 }
 
 
@@ -137,7 +140,9 @@ fn tile_fetch_logic(level: u32, n_tiles_lat: u32, n_tiles_lon: u32, north_west: 
     let lon_step = 360./n_tiles_lat as f32;
 
     let north_west_x = north_west.1 / lat_step; 
-    let north_west_y = north_west / 
+    let north_west_y = north_west.0 / lon_step;
+
+    
     let tiles_which_should_be_visible = 
 }
 
