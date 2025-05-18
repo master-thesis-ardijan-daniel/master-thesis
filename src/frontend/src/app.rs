@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use common::TileResponse;
 use web_time::Duration;
 use winit::{
     application::ApplicationHandler,
@@ -13,20 +14,27 @@ use crate::{safe_get_subdivision_level, types::PerformanceMetrics, State};
 #[derive(Debug)]
 pub enum CustomEvent {
     CreateState(State),
+    HttpResponse(CustomResponseType),
+}
+
+#[derive(Debug)]
+pub enum CustomResponseType {
+    StartupTileResponse(Vec<TileResponse<[u8; 4]>>),
 }
 
 pub struct App {
     state: Option<State>,
     perf_metrics: PerformanceMetrics,
-    proxy: EventLoopProxy<CustomEvent>,
+    #[allow(dead_code)]
+    proxy_eventloop: EventLoopProxy<CustomEvent>,
 }
 
 impl App {
     pub fn new(proxy: EventLoopProxy<CustomEvent>) -> Self {
         Self {
-            perf_metrics: PerformanceMetrics::new(),
             state: None,
-            proxy,
+            perf_metrics: PerformanceMetrics::new(),
+            proxy_eventloop: proxy,
         }
     }
 }
@@ -58,10 +66,13 @@ impl ApplicationHandler<CustomEvent> for App {
                 ))
                 .expect("added canvas to map element");
 
-            let proxy = self.proxy.clone();
+            let proxy_eventloop = self.proxy_eventloop.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                proxy
-                    .send_event(CustomEvent::CreateState(State::new(_window).await))
+                proxy_eventloop
+                    .clone()
+                    .send_event(CustomEvent::CreateState(
+                        State::new(_window, proxy_eventloop).await,
+                    ))
                     .unwrap();
             });
         }
@@ -137,10 +148,20 @@ impl ApplicationHandler<CustomEvent> for App {
 
     // Workaround because State::new needs to be async
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: CustomEvent) {
-        match event {
-            CustomEvent::CreateState(state) => {
+        match (event, &mut self.state) {
+            (CustomEvent::CreateState(state), None) => {
                 self.state = Some(state);
             }
+            (
+                CustomEvent::HttpResponse(CustomResponseType::StartupTileResponse(tiles)),
+                Some(state),
+            ) => {
+                // state.earth_state.tiles = tiles;
+                state.earth_state.update_tile_buffer = true;
+                state.update();
+                state.window.request_redraw();
+            }
+            _ => {}
         }
     }
 }

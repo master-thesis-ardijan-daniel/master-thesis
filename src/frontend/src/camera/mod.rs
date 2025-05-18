@@ -20,13 +20,13 @@ const R: f32 = 0.8;
 #[derive(Debug)]
 pub struct Camera {
     pub radius: f32,
-    current_radius: f32,
+    pub current_radius: f32,
 
     pub angle: f32,
     current_angle: f32,
 
     pub orientation: Quat,
-    current_orientation: Quat,
+    pub current_orientation: Quat,
 
     angular_velocity: Quat,
     friction: f32,

@@ -1,17 +1,29 @@
+use common::{Bounds, TileMetadata, TileResponse};
+use geo::{coord, BoundingRect, Coord, Rect};
 use geo::{CoordsIter, LineString, Polygon};
-use glam::{Mat3, Vec3, Vec3Swizzles, Vec4Swizzles};
+use glam::{Mat3, Quat, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
+// use image::math::Rect;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Origin3d, Queue,
-    RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo,
-    TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
+    BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
+    Origin3d, Queue, RenderPass, SamplerDescriptor, ShaderStages, TexelCopyBufferLayout,
+    TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat,
+    VertexStepMode,
 };
-pub type Point = glam::Vec3;
+use winit::event_loop::EventLoopProxy;
 
+use crate::app::CustomEvent;
 use crate::camera::{Camera, Projection};
 
 use super::Icosphere;
+
+type Point = Vec3;
+
+const TEXTURE_HEIGHT: u32 = 256;
+const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
+
+// const TEXTURE_ATLAS_SIZE: u32 = 2048;
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -25,18 +37,173 @@ pub struct EarthState {
     previous_output_as_lines: bool,
     current_output_as_lines: bool,
 
+    pub update_tile_buffer: bool,
+
     num_vertices: u32,
     num_indices: u32,
     texture_buffer: wgpu::Texture,
-    texture_size: wgpu::Extent3d,
-    current_texture: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
     texture_bind_group: wgpu::BindGroup,
+    pub tiles: Vec<TileResponse<[u8; 4]>>,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
+    tile_metadata_buffer: Buffer,
+    eventloop: EventLoopProxy<CustomEvent>,
+    finished_creation: bool,
 }
 
 impl EarthState {
-    pub fn create(device: &Device) -> Self {
+    // The shader code needs to loop over each of the tiles in order to check if any of them have anything it should sample
+    // if so, we sample from the respective tile
+    // need to make sure we sample withing width and height
+
+    pub fn rewrite_tiles(&mut self, queue: &Queue) {
+        let mut texture_data: Vec<u8> =
+            Vec::with_capacity(self.tiles.len() * (TEXTURE_WIDTH * TEXTURE_HEIGHT * 4) as usize);
+
+        for tile in &self.tiles {
+            texture_data.extend(
+                tile.get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                    .into_iter()
+                    .flatten()
+                    .flatten(),
+            );
+        }
+
+        let tile_metadata = self
+            .tiles
+            .iter()
+            .map(TileMetadata::from)
+            .collect::<Vec<_>>();
+
+        #[cfg(feature = "debug")]
+        log::warn!(" tile_metadata {:#?}", tile_metadata);
+
+        queue.write_buffer(
+            &self.tile_metadata_buffer,
+            0,
+            bytemuck::cast_slice(&tile_metadata),
+        );
+
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture_buffer,
+                mip_level: 0,
+                origin: Origin3d { x: 0, y: 0, z: 0 },
+                aspect: TextureAspect::All,
+            },
+            &texture_data,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(TEXTURE_WIDTH * 4),
+                rows_per_image: Some(TEXTURE_HEIGHT),
+            },
+            Extent3d {
+                width: TEXTURE_WIDTH,
+                height: TEXTURE_HEIGHT,
+                depth_or_array_layers: self.tiles.len() as u32,
+            },
+        );
+    }
+
+    pub fn write_a_single_tile_to_buffer(
+        &mut self,
+        new_tile: TileResponse<[u8; 4]>,
+        layer: u32,
+        queue: Queue,
+    ) {
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture_buffer,
+                mip_level: 0,
+                origin: Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: layer,
+                },
+                aspect: TextureAspect::All,
+            },
+            &new_tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect::<Vec<u8>>(),
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(TEXTURE_WIDTH * 4),
+                rows_per_image: Some(TEXTURE_HEIGHT),
+            },
+            Extent3d {
+                width: TEXTURE_WIDTH,
+                height: TEXTURE_HEIGHT,
+                depth_or_array_layers: 0,
+            },
+        );
+    }
+
+    pub fn fetch_tiles(&self, url: String) {
+        // #[cfg(target_arch = "wasm32")]
+
+        {
+            let proxy = self.eventloop.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let raw_data = gloo_net::http::Request::get(&url)
+                    .query([("level", "1")])
+                    .send()
+                    .await
+                    .expect("Error, request failed! ");
+
+                #[cfg(feature = "debug")]
+                log::warn!("Tiles requested");
+
+                let tiles = raw_data
+                    .json()
+                    .await
+                    .expect("Unable to deserialize response, from tile request");
+                proxy
+                    .send_event(CustomEvent::HttpResponse(
+                        crate::app::CustomResponseType::StartupTileResponse(tiles),
+                    ))
+                    .unwrap();
+            });
+        }
+    }
+
+    pub fn create(device: &Device, eventloop: EventLoopProxy<CustomEvent>) -> Self {
         let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
+
+        let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("tile_metadata_buffer"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            size: size_of::<TileMetadata>() as u64 * 32,
+            mapped_at_creation: false,
+        });
+
+        let texture_size = wgpu::Extent3d {
+            width: TEXTURE_WIDTH,
+            height: TEXTURE_HEIGHT,
+            depth_or_array_layers: 32,
+        };
+        let texture_buffer = device.create_texture(&TextureDescriptor {
+            label: Some("earth_texture_buffer"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let diffuse_texture_view = texture_buffer.create_view(&TextureViewDescriptor::default());
+        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
 
         // Initializing empty buffers is fine,
         // since we initialize new ones on update
@@ -54,37 +221,6 @@ impl EarthState {
             mapped_at_creation: false,
         });
 
-        // let texture_bytes = include_bytes!("../../checkerboard_test.png");
-        let texture_bytes = include_bytes!("../../earthmap2k.jpg");
-        let texture_img = image::load_from_memory(texture_bytes).unwrap();
-        let texture_rgba = texture_img.to_rgba8();
-        let texture_size = wgpu::Extent3d {
-            width: texture_img.width(),
-            height: texture_img.height(),
-            depth_or_array_layers: 1,
-        };
-        let diffuse_texture = device.create_texture(&TextureDescriptor {
-            label: Some("earth_texture_buffer"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let diffuse_texture_view = diffuse_texture.create_view(&TextureViewDescriptor::default());
-        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("earth_texture_bind_group"),
@@ -94,7 +230,7 @@ impl EarthState {
                         visibility: ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                         count: None,
@@ -105,10 +241,20 @@ impl EarthState {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
-        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("earth_texture_diffuse_bind_group"),
             layout: &texture_bind_group_layout,
             entries: &[
@@ -120,18 +266,26 @@ impl EarthState {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
                 },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: tile_metadata_buffer.as_entire_binding(),
+                },
             ],
         });
 
+        let tiles = vec![TileResponse {
+            data: vec![vec![[125u8; 4]; 256]; 256],
+            bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
+        }];
+
         Self {
+            eventloop,
             vertex_buffer,
             index_buffer,
-            texture_buffer: diffuse_texture,
-            texture_size,
             previous_output_as_lines: false,
             current_output_as_lines: false,
-            current_texture: texture_rgba,
-            texture_bind_group: diffuse_bind_group,
+            update_tile_buffer: true,
+            finished_creation: false,
             texture_bind_group_layout,
 
             icosphere,
@@ -139,6 +293,10 @@ impl EarthState {
             current_subdivision_level: 0,
             num_vertices: 0,
             num_indices: 0,
+            texture_buffer,
+            texture_bind_group,
+            tile_metadata_buffer,
+            tiles,
         }
     }
 
@@ -162,15 +320,47 @@ impl EarthState {
         self.current_output_as_lines = output_as_lines;
     }
 
-    pub fn _t(&mut self, projection: &Projection, camera: &Camera) {
+    pub fn tiling_logic(&mut self, projection: &Projection, camera: &Camera) {
+        self.update_tile_buffer = true;
         let polygons = calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
+        let mut out = Vec::new();
+        for polygon in &polygons {
+            for point in polygon.coords_iter() {
+                let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
 
-        // let tile =
+                let tile = TileResponse {
+                    data: texture,
+                    bounds: Bounds::new(
+                        coord! {x: point.x +1., y: point.y+1.},
+                        coord! {x: point.x -1., y: point.y-1.},
+                    ),
+                };
+
+                #[cfg(feature = "debug")]
+                log::warn!("tile bounds! {:#?}", tile.bounds,);
+                out.push(tile);
+            }
+        }
+
+        // #[cfg(feature = "debug")]
+        // log::warn!("tiles {:#?}", self.tile_metadata,);
+
+        self.tiles = out;
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
+        if !self.finished_creation {
+            self.finished_creation = true;
+            // the response handler will set self.update_tiles_buffer to true;
+            // self.fetch_tiles("/tiles".to_string());
+        }
+
+        if self.update_tile_buffer {
+            self.rewrite_tiles(queue);
+            self.update_tile_buffer = false;
+        }
+
         if self.current_subdivision_level == self.previous_subdivision_level
             && self.previous_output_as_lines == self.current_output_as_lines
         {
@@ -181,22 +371,6 @@ impl EarthState {
             self.icosphere
                 .get_subdivison_level_vertecies_and_lines(self.current_subdivision_level)
         } else {
-            queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: &self.texture_buffer,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect: TextureAspect::All,
-                },
-                &self.current_texture,
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.texture_size.width * 4),
-                    rows_per_image: Some(self.texture_size.height),
-                },
-                self.texture_size,
-            );
-
             self.icosphere
                 .get_subdivison_level_vertecies_and_faces(self.current_subdivision_level)
         };
@@ -275,30 +449,36 @@ fn vert_transform(mut v: Point) -> Point {
     // }
     v * r
 }
-fn ray_sphere_intersect(
-    origin_sphere: Point,
-    line_point: Point,
-    line_dir_vec: Point, // should be normalized
+
+pub fn ray_sphere_intersect(
+    origin: Vec3,
+    direction: Vec3,
+    center: Vec3,
     radius: f32,
-) -> Option<Point> {
-    let oc = origin_sphere - line_point;
-    let a = 1.0; // dir.dot(&dir) == 1 if normalized
-    let b = 2.0 * oc.dot(line_dir_vec);
+) -> Option<Vec3> {
+    let oc = origin - center;
+    let a = direction.dot(direction);
+    let b = 2.0 * oc.dot(direction);
     let c = oc.dot(oc) - radius * radius;
     let discriminant = b * b - 4.0 * a * c;
 
     if discriminant < 0.0 {
-        return None; // No intersection, make it so that it calculates the closest intersection along the line which is orthogonal to input line which crosses the origin
+        return None;
     }
 
     let sqrt_disc = discriminant.sqrt();
-    let t = (-b + sqrt_disc.abs()) / (2.0 * a);
+    let t1 = (-b - sqrt_disc) / (2.0 * a);
+    let t2 = (-b + sqrt_disc) / (2.0 * a);
 
-    if t <= 0.0 {
+    let t = if t1 >= 0.0 {
+        t1
+    } else if t2 >= 0.0 {
+        t2
+    } else {
         return None;
     };
 
-    Some(origin_sphere + line_dir_vec * t)
+    Some(origin + direction * t)
 }
 
 fn calculate_camera_earth_view_bounding_box(
@@ -306,117 +486,142 @@ fn calculate_camera_earth_view_bounding_box(
     camera: &Camera,
     earth_position: Point,
 ) -> Vec<geo::Polygon<f32>> {
-    const MAX_BOUNDS: ((f32, f32), (f32, f32)) = ((90., -180.), (-90., -180.));
+    let cam_pos = (camera_projection.calc_matrix() * camera.calc_matrix())
+        .inverse()
+        .project_point3(-Vec3::Z);
+
+    // Compute camera forward direction (negative Z in view space, transformed to world space)
+    let camera_direction_vector = (Vec3::ZERO - cam_pos).normalize();
+
+    let mut hit_points = vec![];
+    let hit_point = ray_sphere_intersect(cam_pos, camera_direction_vector, Vec3::ZERO, 1.);
+    if hit_point.is_none() {
+        #[cfg(feature = "debug")]
+        log::warn!("No intersection!");
+        return vec![];
+    } else {
+        hit_points.push(convert_point_on_surface_to_lat_lon(hit_point.unwrap()));
+    }
+
+    #[cfg(feature = "debug")]
+    log::warn!("Intersection: {:?}", hit_point);
+
     let fov = camera_projection.fovy;
-    let camera_pos = camera.orientation.xyz();
 
-    // Given camera direction, create two vectors which represent the corners of the visible area
-    // use the camera view vector and rotate it by fov angle in positive and negative using an orthogonal vector as the axis of rotation
-    //
-    //
-
-    let camera_direction_vector = camera.calc_matrix().col(3).xyz();
+    // Compute orthonormal basis for camera
     let (cam_orth_vector_1, cam_orth_vector_2) = camera_direction_vector.any_orthonormal_pair();
 
-    let rotation_matrixes = [
-        // Top-left: -fovx/2, +fovy/2
+    let rotation_matrices = [
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 4.0),
         ),
-        // Top-right: +fovx/2, +fovy/2
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 4.0),
         ),
-        // Bottom-left: -fovx/2, -fovy/2
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, fov / 4.0),
         ),
-        // Bottom-right: +fovx/2, -fovy/2
         (
-            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
+            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 4.0),
+            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 4.0),
         ),
     ];
 
     let mut fov_rays = [Vec3::ZERO; 4];
-    for (i, (rm_1, rm_2)) in rotation_matrixes.iter().enumerate() {
-        fov_rays[i] = *rm_2 * (*rm_1 * camera_direction_vector);
+    for (i, (rm_1, rm_2)) in rotation_matrices.iter().enumerate() {
+        fov_rays[i] = (*rm_2 * (*rm_1 * camera_direction_vector)).normalize();
     }
 
-    const WORLD_SPACE_EARTH_RADIUS: f32 = 1.; // Does not need to be accurate
-
+    // Compute intersection points with Earth's surface
     let surface_intersection_points = fov_rays
         .iter()
         .filter_map(|ray| {
-            Some(convert_point_on_surface_to_lat_lon(ray_sphere_intersect(
-                earth_position,
-                camera_pos,
-                *ray,
-                WORLD_SPACE_EARTH_RADIUS,
-            )?))
+            let intersection = ray_sphere_intersect(cam_pos, *ray, earth_position, 1.)?;
+            Some(convert_point_on_surface_to_lat_lon(intersection))
         })
-        .collect::<Vec<(f32, f32)>>();
+        .collect::<Vec<Coord<f32>>>();
 
-    let north_pole = Vec3::new(0., 0., 1.);
-    let south_pole = Vec3::new(0., 0., -1.);
+    hit_points.extend(surface_intersection_points);
 
-    let ray_to_north_pole = camera_pos - north_pole;
-    let ray_to_south_pole = camera_pos - south_pole;
+    // let new_hit = ray_sphere_intersect(cam_pos, fov_rays[0], earth_position, 1.);
 
-    let north_pole_is_visible = is_ray_in_cone(ray_to_north_pole, camera_direction_vector, fov);
-    let south_pole_is_visible = is_ray_in_cone(ray_to_south_pole, camera_direction_vector, fov);
+    // if new_hit.is_none() {
+    //     #[cfg(feature = "debug")]
+    //     log::warn!("NEW HIT!!!! No intersection!");
+    //     return vec![Polygon::new(LineString::from(hit_points), vec![])];
+    //     // return ;
+    // } else {
+    //     hit_points.push(convert_point_on_surface_to_lat_lon(new_hit.unwrap()));
+    // }
 
-    if surface_intersection_points.is_empty() || south_pole_is_visible && north_pole_is_visible {
-        // return MAX_BOUNDS;
-        // return vec![Polygon::new(vec![MA], vec![])]
-        todo!("Return max bounds polygon")
-    }
+    // :ray_sphere_intersect(cam_pos, *ray, earth_position, 1.)    hit_points.push();
+    return vec![Polygon::new(LineString::from(hit_points), vec![])];
 
-    let mut out = Vec::new();
+    // const WORLD_SPACE_EARTH_RADIUS: f32 = 1.; // Does not need to be accurate
 
-    // Crossing the meridian
-    if surface_intersection_points[0].1 > surface_intersection_points[1].1 {
-        out.push(Polygon::new(
-            LineString::from(vec![
-                surface_intersection_points[0],
-                (surface_intersection_points[0].0, 180.),
-                (surface_intersection_points[3].0, 180.),
-                surface_intersection_points[3],
-            ]),
-            vec![],
-        ));
+    // let north_pole = Vec3::new(0., 0., 1.);
+    // let south_pole = Vec3::new(0., 0., -1.);
 
-        out.push(Polygon::new(
-            LineString::from(vec![
-                surface_intersection_points[1],
-                (surface_intersection_points[1].0, -180.),
-                (surface_intersection_points[2].0, -180.),
-                surface_intersection_points[2],
-            ]),
-            vec![],
-        ));
-    }
+    // let ray_to_north_pole = camera_pos - north_pole;
+    // let ray_to_south_pole = camera_pos - south_pole;
 
-    if north_pole_is_visible {
-        for polygon in &mut out {
-            for p in polygon.clone().coords_iter() {
-                polygon.exterior_mut(|l| l.0.push((p.x, 90.).into()));
-            }
-        }
-    }
+    // let north_pole_is_visible = is_ray_in_cone(ray_to_north_pole, camera_direction_vector, fov);
+    // let south_pole_is_visible = is_ray_in_cone(ray_to_south_pole, camera_direction_vector, fov);
 
-    if south_pole_is_visible {
-        for polygon in &mut out {
-            for p in polygon.clone().coords_iter() {
-                polygon.exterior_mut(|l| l.0.push((p.x, -90.).into()));
-            }
-        }
-    }
+    // if surface_intersection_points.is_empty() || south_pole_is_visible && north_pole_is_visible {
+    //     // return MAX_BOUNDS;
+    //     // todo!("Return max bounds polygon")
+    //     #[cfg(feature = "debug")]
+    //     log::warn!("Hit max bounds");
+    //     // return vec![Polygon::new(vec![MA], vec![])]
+    //     return vec![];
+    // }
 
-    out
+    // let mut out = Vec::new();
+
+    // // Crossing the meridian
+    // if surface_intersection_points[0].1 > surface_intersection_points[1].1 {
+    //     out.push(Polygon::new(
+    //         LineString::from(vec![
+    //             surface_intersection_points[0],
+    //             (surface_intersection_points[0].0, 180.),
+    //             (surface_intersection_points[3].0, 180.),
+    //             surface_intersection_points[3],
+    //         ]),
+    //         vec![],
+    //     ));
+
+    //     out.push(Polygon::new(
+    //         LineString::from(vec![
+    //             surface_intersection_points[1],
+    //             (surface_intersection_points[1].0, -180.),
+    //             (surface_intersection_points[2].0, -180.),
+    //             surface_intersection_points[2],
+    //         ]),
+    //         vec![],
+    //     ));
+    // }
+
+    // if north_pole_is_visible {
+    //     for polygon in &mut out {
+    //         for p in polygon.clone().coords_iter() {
+    //             polygon.exterior_mut(|l| l.0.push((p.x, 90.).into()));
+    //         }
+    //     }
+    // }
+
+    // if south_pole_is_visible {
+    //     for polygon in &mut out {
+    //         for p in polygon.clone().coords_iter() {
+    //             polygon.exterior_mut(|l| l.0.push((p.x, -90.).into()));
+    //         }
+    //     }
+    // }
+
+    // out
     // // Find longest distance to other points
     // let max_diff = surface_intersection_points
     //     .iter()
@@ -458,11 +663,18 @@ fn calculate_camera_earth_view_bounding_box(
     // ((nw_lat, nw_lon), (se_lat, se_lon))
 }
 
-fn convert_point_on_surface_to_lat_lon(point: Point) -> (f32, f32) {
-    let lon = point.x.atan2(-point.y).to_degrees();
-    let lat = point.z.asin().to_degrees();
+fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
+    #[cfg(feature = "debug")]
+    log::warn!("DDD1 {:#?}", point);
+    let lon = if point.x == 0.0 && point.y == 0.0 {
+        0.0
+    } else {
+        point.x.atan2(-point.y).to_degrees()
+    };
+    // let lon = point.x.atan2(-point.y).to_degrees();
+    let lat = -point.z.clamp(-1., 1.).asin().to_degrees();
 
-    (lat - 90., lon - 180.)
+    coord! {x:lon,y:lat}
 }
 
 fn is_ray_in_cone(ray_dir: Point, cone_dir: Point, cone_half_angle_rad: f32) -> bool {

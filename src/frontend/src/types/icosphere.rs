@@ -1,11 +1,10 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use crate::types::Point;
-
 use super::HashablePoint;
 
 pub const PHI: f32 = 1.618_034_f32;
 
+type Point = glam::Vec3;
 type Vertex = Point;
 
 #[derive(Debug)]
