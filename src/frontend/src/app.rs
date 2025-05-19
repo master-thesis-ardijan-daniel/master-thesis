@@ -20,6 +20,7 @@ pub enum CustomEvent {
 #[derive(Debug)]
 pub enum CustomResponseType {
     StartupTileResponse(Vec<TileResponse<[u8; 4]>>),
+    TileResponse(TileResponse<[u8; 4]>, (u32, u32, u32)),
 }
 
 pub struct App {
@@ -152,12 +153,22 @@ impl ApplicationHandler<CustomEvent> for App {
             (CustomEvent::CreateState(state), None) => {
                 self.state = Some(state);
             }
+
             (
                 CustomEvent::HttpResponse(CustomResponseType::StartupTileResponse(tiles)),
                 Some(state),
             ) => {
                 // state.earth_state.tiles = tiles;
                 state.earth_state.update_tile_buffer = true;
+                state.update();
+                state.window.request_redraw();
+            }
+            (
+                CustomEvent::HttpResponse(CustomResponseType::TileResponse(tile, id)),
+                Some(state),
+            ) => {
+                state.earth_state.update_tile_buffer = true;
+                state.earth_state.insert_tile(id, tile);
                 state.update();
                 state.window.request_redraw();
             }

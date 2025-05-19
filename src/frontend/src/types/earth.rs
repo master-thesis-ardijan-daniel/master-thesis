@@ -50,63 +50,36 @@ pub struct EarthState {
     tile_metadata_buffer: Buffer,
     eventloop: EventLoopProxy<CustomEvent>,
     finished_creation: bool,
+
+    tiles_: Tiles,
+    tile: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
 }
 
 impl EarthState {
-    pub fn rewrite_tiles(&mut self, queue: &Queue) {
-        let mut texture_data: Vec<u8> =
-            Vec::with_capacity(self.tiles.len() * (TEXTURE_WIDTH * TEXTURE_HEIGHT * 4) as usize);
-
-        for tile in &self.tiles {
-            texture_data.extend(
-                tile.get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
-                    .into_iter()
-                    .flatten()
-                    .flatten(),
-            );
-        }
-
-        let tile_metadata = self
-            .tiles
-            .iter()
-            .map(TileMetadata::from)
-            .collect::<Vec<_>>();
-
+    pub fn insert_tile(&mut self, id: (u32, u32, u32), data: TileResponse<[u8; 4]>) {
         #[cfg(feature = "debug")]
-        log::warn!(" tile_metadata {:#?}", tile_metadata);
+        log::warn!("Inserted tile {:#?}", id);
 
-        queue.write_buffer(
-            &self.tile_metadata_buffer,
-            0,
-            bytemuck::cast_slice(&tile_metadata),
-        );
+        self.tile.insert(id, data);
+    }
 
-        queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &self.texture_buffer,
-                mip_level: 0,
-                origin: Origin3d { x: 0, y: 0, z: 0 },
-                aspect: TextureAspect::All,
-            },
-            &texture_data,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(TEXTURE_WIDTH * 4),
-                rows_per_image: Some(TEXTURE_HEIGHT),
-            },
-            Extent3d {
-                width: TEXTURE_WIDTH,
-                height: TEXTURE_HEIGHT,
-                depth_or_array_layers: self.tiles.len() as u32,
-            },
-        );
+    pub fn rewrite_tiles(&mut self, queue: &Queue) {
+        let tiles = std::mem::take(&mut self.tile);
+
+        for (id, tile) in tiles.into_iter() {
+            let Some(&slot) = self.tiles_.allocated.get(&id) else {
+                continue;
+            };
+
+            self.write_a_single_tile_to_buffer(tile, &slot, queue);
+        }
     }
 
     pub fn write_a_single_tile_to_buffer(
         &mut self,
         new_tile: TileResponse<[u8; 4]>,
-        layer: u32,
-        queue: Queue,
+        slot: &BufferSlot,
+        queue: &Queue,
     ) {
         queue.write_texture(
             TexelCopyTextureInfo {
@@ -115,7 +88,7 @@ impl EarthState {
                 origin: Origin3d {
                     x: 0,
                     y: 0,
-                    z: layer,
+                    z: slot.start as u32,
                 },
                 aspect: TextureAspect::All,
             },
@@ -133,8 +106,24 @@ impl EarthState {
             Extent3d {
                 width: TEXTURE_WIDTH,
                 height: TEXTURE_HEIGHT,
-                depth_or_array_layers: 0,
+                depth_or_array_layers: 1,
             },
+        );
+
+        let metadata = TileMetadata::from(&new_tile);
+        #[cfg(feature = "debug")]
+        {
+            log::warn!(
+                "Metadata written: {:#?} at {}",
+                metadata,
+                (slot.start * size_of::<TileMetadata>()) as u64
+            );
+        }
+
+        queue.write_buffer(
+            &self.tile_metadata_buffer,
+            (slot.start * size_of::<TileMetadata>()) as u64,
+            bytemuck::bytes_of(&metadata),
         );
     }
 
@@ -276,7 +265,20 @@ impl EarthState {
             bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
         }];
 
+        let levels = (0..3)
+            .map(|level| {
+                Level::new(
+                    Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                    4_usize.pow(level),
+                    4_usize.pow(level),
+                )
+            })
+            .collect();
+
         Self {
+            tiles_: Tiles::new(levels, 64),
+            tile: HashMap::new(),
+
             eventloop,
             vertex_buffer,
             index_buffer,
@@ -322,29 +324,30 @@ impl EarthState {
         self.update_tile_buffer = true;
         let polygons = calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        let mut out = Vec::new();
-        for polygon in &polygons {
-            for point in polygon.coords_iter() {
-                let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
+        let fetch = self.tiles_.get_intersection(2, &polygons);
 
-                let tile = TileResponse {
-                    data: texture,
-                    bounds: Bounds::new(
-                        coord! {x: point.x +1., y: point.y+1.},
-                        coord! {x: point.x -1., y: point.y-1.},
-                    ),
-                };
-
-                // #[cfg(feature = "debug")]
-                // log::warn!("tile bounds! {:#?}", tile.bounds,);
-                out.push(tile);
+        for f in fetch {
+            #[cfg(feature = "debug")]
+            {
+                log::warn!("fetching {:#?}", f);
             }
+            let proxy = self.eventloop.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let tile = gloo_net::http::Request::get(&format!("/tile/{}/{}/{}", f.0, f.1, f.2))
+                    .send()
+                    .await
+                    .unwrap()
+                    .json()
+                    .await
+                    .unwrap();
+
+                proxy
+                    .send_event(CustomEvent::HttpResponse(
+                        crate::app::CustomResponseType::TileResponse(tile, f),
+                    ))
+                    .unwrap();
+            });
         }
-
-        // #[cfg(feature = "debug")]
-        // log::warn!("tiles {:#?}", self.tile_metadata,);
-
-        self.tiles = out;
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
@@ -566,12 +569,6 @@ fn calculate_camera_earth_view_bounding_box(
         is_vector_in_cone(-ray_to_south_pole, camera_direction_vector, fov / 2.)
     };
 
-    // #[cfg(feature = "debug")]
-    // {
-    // log::warn!("North pole visible: {:?}", north_pole_is_visible);
-    // log::warn!("South pole visible: {:?}", south_pole_is_visible);
-    // }
-
     let crossing_meridian = surface_intersection_points
         .clone()
         .iter()
@@ -622,13 +619,7 @@ fn calculate_camera_earth_view_bounding_box(
             }
         }
     }
-    // #[cfg(feature = "debug")]
-    // {
-    //     log::warn!(
-    //         "N points: {:?}",
-    //         out.clone().iter().flatten().collect::<Vec<_>>().len()
-    //     );
-    // }
+
     return out
         .into_iter()
         .map(|x| Polygon::new(LineString::from(x), vec![]))
@@ -648,39 +639,27 @@ fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
     coord! {x:lon,y:lat}
 }
 
-fn tile_fetch_logic(
-    level: u32,
-    n_tiles_lat: u32,
-    n_tiles_lon: u32,
-    north_west: (f32, f32),
-    south_east: (f32, f32),
-) {
-    let lat_step = 180. / n_tiles_lat as f32;
-    let lon_step = 360. / n_tiles_lat as f32;
-
-    let north_west_x = north_west.1 / lat_step;
-    let north_west_y = north_west.0 / lon_step;
-
-    let tiles_which_should_be_visible = todo!();
-}
 fn is_vector_in_cone(vector: Vec3, cone_axis: Vec3, cone_angle: f32) -> bool {
     let cos_angle = vector.dot(cone_axis).clamp(-1., 1.);
 
     cos_angle >= cone_angle.cos()
 }
 
+#[derive(Debug)]
 struct Tiles {
     levels: Vec<Level>,
-    visible: HashSet<(u32, u32)>,
+    visible: HashSet<(u32, u32, u32)>,
 
-    allocated: HashMap<(u32, u32), BufferSlot>,
+    allocated: HashMap<(u32, u32, u32), BufferSlot>,
     free: Vec<BufferSlot>,
 }
 
+#[derive(Debug, Copy, Clone)]
 struct BufferSlot {
     start: usize,
 }
 
+#[derive(Debug)]
 struct Level {
     bounds: Bounds,
     width: usize,
@@ -690,20 +669,29 @@ struct Level {
 }
 
 impl Level {
-    pub fn coordinate_to_tile(&self, coordinate: &Coord<f32>) -> u32 {
-        // let step_x = (self.bounds.height() / self.height as f32);
-        // let step_y = (self.bounds.width() / self.width as f32);
+    pub fn new(bounds: Bounds, width: usize, height: usize) -> Self {
+        let step_x = bounds.height() / height as f32;
+        let step_y = bounds.width() / width as f32;
 
-        (coordinate.y / self.step_y) as u32 * (coordinate.x / self.step_x) as u32
+        Self {
+            bounds,
+            width,
+            height,
+            step_x,
+            step_y,
+        }
     }
 }
 
 impl Tiles {
-    pub fn new(levels: Vec<Level>, buffer_size: usize, tile_size: usize) -> Self {
-        let free = (0..buffer_size)
-            .step_by(tile_size)
+    pub fn new(levels: Vec<Level>, slots: usize) -> Self {
+        let free = (0..slots)
+            .rev()
             .map(|start| BufferSlot { start })
-            .collect();
+            .collect::<Vec<_>>();
+
+        #[cfg(feature = "debug")]
+        log::warn!("Allocated {} slots", free.len());
 
         Self {
             levels,
@@ -714,8 +702,8 @@ impl Tiles {
         }
     }
 
-    pub fn get_intersection(&mut self, level: usize, polygons: &[Polygon<f32>]) -> Vec<(u32, u32)> {
-        let level = &self.levels[level];
+    pub fn get_intersection(&mut self, z: u32, polygons: &[Polygon<f32>]) -> Vec<(u32, u32, u32)> {
+        let level = &self.levels[z as usize];
 
         let mut visible = HashSet::new();
 
@@ -729,7 +717,7 @@ impl Tiles {
 
             for y in min_y..max_y {
                 for x in min_x..max_x {
-                    visible.insert((y, x));
+                    visible.insert((z, y, x));
                 }
             }
         }

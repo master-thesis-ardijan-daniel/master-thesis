@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -81,5 +82,12 @@ async fn get_tile(
     Path(TileQuery { x, y, z }): Path<TileQuery>,
     State(state): State<BackendState>,
 ) -> impl IntoResponse {
-    Json(state.image_tree.get_tile(x, y, z)).into_response()
+    let mut headers = HeaderMap::new();
+
+    headers.insert(
+        "Cache-Control",
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+
+    (headers, Json(state.image_tree.get_tile(x, y, z))).into_response()
 }
