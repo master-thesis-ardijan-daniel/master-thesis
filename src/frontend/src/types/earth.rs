@@ -1,5 +1,7 @@
+use std::collections::{HashMap, HashSet};
+
 use common::{Bounds, TileMetadata, TileResponse};
-use geo::{coord, BoundingRect, Coord, Rect};
+use geo::{coord, Area, BoundingRect, Contains, Coord, Intersects, Rect};
 use geo::{CoordsIter, LineString, Polygon};
 use glam::{Mat3, Quat, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 // use image::math::Rect;
@@ -170,14 +172,14 @@ impl EarthState {
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64 * 32,
+            size: size_of::<TileMetadata>() as u64 * 64,
             mapped_at_creation: false,
         });
 
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 32,
+            depth_or_array_layers: 64,
         };
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),
@@ -665,4 +667,94 @@ fn is_vector_in_cone(vector: Vec3, cone_axis: Vec3, cone_angle: f32) -> bool {
     let cos_angle = vector.dot(cone_axis).clamp(-1., 1.);
 
     cos_angle >= cone_angle.cos()
+}
+
+struct Tiles {
+    levels: Vec<Level>,
+    visible: HashSet<(u32, u32)>,
+
+    allocated: HashMap<(u32, u32), BufferSlot>,
+    free: Vec<BufferSlot>,
+}
+
+struct BufferSlot {
+    start: usize,
+}
+
+struct Level {
+    bounds: Bounds,
+    width: usize,
+    height: usize,
+    step_x: f32,
+    step_y: f32,
+}
+
+impl Level {
+    pub fn coordinate_to_tile(&self, coordinate: &Coord<f32>) -> u32 {
+        // let step_x = (self.bounds.height() / self.height as f32);
+        // let step_y = (self.bounds.width() / self.width as f32);
+
+        (coordinate.y / self.step_y) as u32 * (coordinate.x / self.step_x) as u32
+    }
+}
+
+impl Tiles {
+    pub fn new(levels: Vec<Level>, buffer_size: usize, tile_size: usize) -> Self {
+        let free = (0..buffer_size)
+            .step_by(tile_size)
+            .map(|start| BufferSlot { start })
+            .collect();
+
+        Self {
+            levels,
+
+            visible: HashSet::new(),
+            free,
+            allocated: HashMap::new(),
+        }
+    }
+
+    pub fn get_intersection(&mut self, level: usize, polygons: &[Polygon<f32>]) -> Vec<(u32, u32)> {
+        let level = &self.levels[level];
+
+        let mut visible = HashSet::new();
+
+        for polygon in polygons {
+            let bounds = polygon.bounding_rect().unwrap();
+
+            let min_x = (bounds.min().x / level.step_x) as u32;
+            let min_y = (bounds.min().y / level.step_y) as u32;
+            let max_x = (bounds.max().x / level.step_x) as u32;
+            let max_y = (bounds.max().y / level.step_y) as u32;
+
+            for y in min_y..max_y {
+                for x in min_x..max_x {
+                    visible.insert((y, x));
+                }
+            }
+        }
+
+        let not_visible_anymore = self.visible.difference(&visible);
+
+        for tile in not_visible_anymore {
+            if let Some(deallocated) = self.allocated.remove(tile) {
+                self.free.push(deallocated);
+            }
+        }
+
+        let to_be_allocated = visible
+            .difference(&self.visible)
+            .copied()
+            .collect::<Vec<_>>();
+
+        for &tile in &to_be_allocated {
+            if let Some(slot) = self.free.pop() {
+                self.allocated.insert(tile, slot);
+            }
+        }
+
+        self.visible = visible;
+
+        to_be_allocated
+    }
 }
