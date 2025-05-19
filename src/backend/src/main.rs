@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -41,6 +41,7 @@ async fn main() {
     let router = Router::new()
         .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
         .route("/tiles", get(get_tiles))
+        .route("/tile/{z}/{y}/{x}", get(get_tile))
         .with_state(state);
 
     println!("Listening on {}:{}", addr.ip(), addr.port());
@@ -56,15 +57,29 @@ struct BackendState {
 }
 
 #[derive(Deserialize)]
-struct TileQuery {
+struct TilesQuery {
     level: u32,
 }
 
 async fn get_tiles(
-    Query(tile_query): Query<TileQuery>,
+    Query(tile_query): Query<TilesQuery>,
     State(state): State<BackendState>,
 ) -> impl IntoResponse {
     let query = Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. });
 
     Json(state.image_tree.get_tiles(query, tile_query.level)).into_response()
+}
+
+#[derive(Deserialize)]
+struct TileQuery {
+    x: usize,
+    y: usize,
+    z: usize,
+}
+
+async fn get_tile(
+    Path(TileQuery { x, y, z }): Path<TileQuery>,
+    State(state): State<BackendState>,
+) -> impl IntoResponse {
+    Json(state.image_tree.get_tile(x, y, z)).into_response()
 }
