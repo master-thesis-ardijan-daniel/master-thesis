@@ -91,6 +91,12 @@ where
 
         let mut current = reader.read::<TileNode<D::Type>>();
 
+        let max = D::CHILDREN_PER_AXIS.pow(z as u32);
+
+        if y >= max || x >= max {
+            return None;
+        }
+
         for level in 1..=z {
             let bit_position = z - level;
 

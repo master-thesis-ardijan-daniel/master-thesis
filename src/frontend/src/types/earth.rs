@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use common::{Bounds, TileMetadata, TileResponse};
 use geo::{coord, Area, BoundingRect, Contains, Coord, Distance, Euclidean, Intersects, Rect};
@@ -111,14 +111,14 @@ impl EarthState {
         );
 
         let metadata = TileMetadata::from(&new_tile);
-        // #[cfg(feature = "debug")]
-        // {
-        //     log::warn!(
-        //         "Metadata written: {:#?} at {}",
-        //         metadata,
-        //         (slot.start * size_of::<TileMetadata>()) as u64
-        //     );
-        // }
+        #[cfg(feature = "debug")]
+        {
+            log::warn!(
+                "Metadata written: {:#?} at {}",
+                metadata,
+                (slot.start * size_of::<TileMetadata>()) as u64
+            );
+        }
 
         queue.write_buffer(
             &self.tile_metadata_buffer,
@@ -161,14 +161,14 @@ impl EarthState {
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64 * 32,
+            size: size_of::<TileMetadata>() as u64 * 64,
             mapped_at_creation: false,
         });
 
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 32,
+            depth_or_array_layers: 64,
         };
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),
@@ -269,14 +269,14 @@ impl EarthState {
             .map(|level| {
                 Level::new(
                     Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
-                    4_usize.pow(level),
-                    4_usize.pow(level),
+                    2_usize.pow(level),
+                    2_usize.pow(level),
                 )
             })
             .collect();
 
         Self {
-            tiles_: Tiles::new(levels, 32),
+            tiles_: Tiles::new(levels, 64),
             tile: HashMap::new(),
 
             eventloop,
@@ -348,19 +348,19 @@ impl EarthState {
         let fov_intersections =
             calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        #[cfg(feature = "debug")]
-        log::warn!("tile bounds! {:#?}", fov_intersections.len());
+        // #[cfg(feature = "debug")]
+        // log::warn!("tile bounds! {:#?}", fov_intersections.len());
 
-        self.test_bounding_box(&fov_intersections, queue);
-        return;
+        // self.test_bounding_box(&fov_intersections, queue);
+        // return;
 
-        let fetch = self.tiles_.get_intersection(1, &fov_intersections);
+        let fetch = self.tiles_.get_intersection(3, &fov_intersections);
 
         for f in fetch {
-            // #[cfg(feature = "debug")]
-            // {
-            // log::warn!("fetching {:#?}", f);
-            // }
+            #[cfg(feature = "debug")]
+            {
+                log::warn!("fetching {:#?}", f);
+            }
             let proxy = self.eventloop.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let tile = gloo_net::http::Request::get(&format!("/tile/{}/{}/{}", f.0, f.1, f.2))
@@ -594,10 +594,12 @@ fn is_vector_in_cone(vector: Vec3, cone_axis: Vec3, cone_angle: f32) -> bool {
 #[derive(Debug)]
 struct Tiles {
     levels: Vec<Level>,
-    visible: HashSet<(u32, u32, u32)>,
 
+    visible: HashSet<(u32, u32, u32)>,
     allocated: HashMap<(u32, u32, u32), BufferSlot>,
-    free: Vec<BufferSlot>,
+
+    marked: VecDeque<(u32, u32, u32)>,
+    free: VecDeque<BufferSlot>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -616,8 +618,8 @@ struct Level {
 
 impl Level {
     pub fn new(bounds: Bounds, width: usize, height: usize) -> Self {
-        let step_x = bounds.height() / height as f32;
-        let step_y = bounds.width() / width as f32;
+        let step_x = bounds.width() / width as f32;
+        let step_y = bounds.height() / height as f32;
 
         Self {
             bounds,
@@ -631,19 +633,14 @@ impl Level {
 
 impl Tiles {
     pub fn new(levels: Vec<Level>, slots: usize) -> Self {
-        let free = (0..slots)
-            .rev()
-            .map(|start| BufferSlot { start })
-            .collect::<Vec<_>>();
-
-        // #[cfg(feature = "debug")]
-        // log::warn!("Allocated {} slots", free.len());
+        let free = (0..slots).map(|start| BufferSlot { start }).collect();
 
         Self {
             levels,
 
             visible: HashSet::new(),
             free,
+            marked: VecDeque::new(),
             allocated: HashMap::new(),
         }
     }
@@ -657,50 +654,38 @@ impl Tiles {
             visible.insert((z, (p.y / level.step_y) as u32, (p.x / level.step_x) as u32));
         }
 
-        #[cfg(feature = "debug")]
-        {
-            log::warn!("Visible: {:#?}", visible.len());
-            log::warn!("Visible: {:#?}", visible);
-        }
-        // for polygon in polygons {
-        //     let bounds = polygon.bounding_rect().unwrap();
-
-        //     #[cfg(feature = "debug")]
-        //     log::warn!("Polygon bounding_box: {:#?}", bounds);
-
-        //     let min_x = (bounds.min().x / level.step_x) as u32;
-        //     let min_y = (bounds.min().y / level.step_y) as u32;
-        //     let max_x = (bounds.max().x / level.step_x) as u32;
-        //     let max_y = (bounds.max().y / level.step_y) as u32;
-
-        //     for y in min_y..max_y {
-        //         for x in min_x..max_x {
-        //             visible.insert((z, y, x));
-        //         }
-        //     }
-        // }
+        self.marked.retain(|tile| !visible.contains(tile));
 
         let not_visible_anymore = self.visible.difference(&visible);
 
-        for tile in not_visible_anymore {
-            if let Some(deallocated) = self.allocated.remove(tile) {
-                self.free.push(deallocated);
-            }
+        for &tile in not_visible_anymore {
+            self.marked.push_back(tile);
         }
 
-        let to_be_allocated = visible
-            .difference(&self.visible)
-            .copied()
-            .collect::<Vec<_>>();
+        let mut to_be_fetched = Vec::new();
 
-        for &tile in &to_be_allocated {
-            if let Some(slot) = self.free.pop() {
+        for &tile in &visible {
+            if self.allocated.contains_key(&tile) {
+                // Tile is already allocated
+                continue;
+            }
+
+            let slot = self.free.pop_front().or_else(|| {
+                // No free slot found, steal a slot
+
+                self.marked
+                    .pop_front()
+                    .and_then(|tile| self.allocated.remove(&tile))
+            });
+
+            if let Some(slot) = slot {
                 self.allocated.insert(tile, slot);
+                to_be_fetched.push(tile);
             }
         }
 
         self.visible = visible;
 
-        to_be_allocated
+        to_be_fetched
     }
 }
