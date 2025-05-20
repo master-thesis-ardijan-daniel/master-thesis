@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use common::{Bounds, TileMetadata, TileResponse};
-use geo::{coord, Area, BoundingRect, Contains, Coord, Intersects, Rect};
+use geo::{coord, Area, BoundingRect, Contains, Coord, Distance, Euclidean, Intersects, Rect};
 use geo::{CoordsIter, LineString, Polygon};
 use glam::{Mat3, Quat, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 // use image::math::Rect;
@@ -57,8 +57,8 @@ pub struct EarthState {
 
 impl EarthState {
     pub fn insert_tile(&mut self, id: (u32, u32, u32), data: TileResponse<[u8; 4]>) {
-        #[cfg(feature = "debug")]
-        log::warn!("Inserted tile {:#?}", id);
+        // #[cfg(feature = "debug")]
+        // log::warn!("Inserted tile {:#?}", id);
 
         self.tile.insert(id, data);
     }
@@ -111,14 +111,14 @@ impl EarthState {
         );
 
         let metadata = TileMetadata::from(&new_tile);
-        #[cfg(feature = "debug")]
-        {
-            log::warn!(
-                "Metadata written: {:#?} at {}",
-                metadata,
-                (slot.start * size_of::<TileMetadata>()) as u64
-            );
-        }
+        // #[cfg(feature = "debug")]
+        // {
+        //     log::warn!(
+        //         "Metadata written: {:#?} at {}",
+        //         metadata,
+        //         (slot.start * size_of::<TileMetadata>()) as u64
+        //     );
+        // }
 
         queue.write_buffer(
             &self.tile_metadata_buffer,
@@ -161,14 +161,14 @@ impl EarthState {
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64 * 64,
+            size: size_of::<TileMetadata>() as u64 * 32,
             mapped_at_creation: false,
         });
 
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 64,
+            depth_or_array_layers: 32,
         };
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),
@@ -265,7 +265,7 @@ impl EarthState {
             bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
         }];
 
-        let levels = (0..3)
+        let levels = (0..4)
             .map(|level| {
                 Level::new(
                     Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
@@ -276,7 +276,7 @@ impl EarthState {
             .collect();
 
         Self {
-            tiles_: Tiles::new(levels, 64),
+            tiles_: Tiles::new(levels, 32),
             tile: HashMap::new(),
 
             eventloop,
@@ -319,18 +319,48 @@ impl EarthState {
     pub fn set_output_to_lines(&mut self, output_as_lines: bool) {
         self.current_output_as_lines = output_as_lines;
     }
+    pub fn test_bounding_box(&mut self, polygons: &[Coord<f32>], queue: &Queue) {
+        let mut out = HashMap::new();
 
-    pub fn tiling_logic(&mut self, projection: &Projection, camera: &Camera) {
+        for (i, polygon) in polygons.iter().enumerate() {
+            let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
+
+            let tile = TileResponse {
+                data: texture,
+
+                bounds: Rect::new(
+                    coord! {x: polygon.x,y:polygon.y},
+                    coord! {x: polygon.x+0.4,y:polygon.y+0.4},
+                ),
+            };
+
+            self.write_a_single_tile_to_buffer(tile, &BufferSlot { start: i }, queue);
+            // #[cfg(feature = "debug")]
+            // log::warn!("tile bounds! {:#?}", tile.bounds,);
+        }
+
         self.update_tile_buffer = true;
-        let polygons = calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        let fetch = self.tiles_.get_intersection(2, &polygons);
+        self.tile = out;
+    }
+
+    pub fn tiling_logic(&mut self, projection: &Projection, camera: &Camera, queue: &Queue) {
+        let fov_intersections =
+            calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
+
+        #[cfg(feature = "debug")]
+        log::warn!("tile bounds! {:#?}", fov_intersections.len());
+
+        self.test_bounding_box(&fov_intersections, queue);
+        return;
+
+        let fetch = self.tiles_.get_intersection(1, &fov_intersections);
 
         for f in fetch {
-            #[cfg(feature = "debug")]
-            {
-                log::warn!("fetching {:#?}", f);
-            }
+            // #[cfg(feature = "debug")]
+            // {
+            // log::warn!("fetching {:#?}", f);
+            // }
             let proxy = self.eventloop.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let tile = gloo_net::http::Request::get(&format!("/tile/{}/{}/{}", f.0, f.1, f.2))
@@ -451,179 +481,95 @@ fn vert_transform(mut v: Point) -> Point {
     v * r
 }
 
-pub fn ray_sphere_intersect(origin: Vec3, direction: Vec3, center: Vec3, radius: f32) -> Vec3 {
-    let oc = origin - center;
-    let a = direction.dot(direction);
-    let b = 2.0 * oc.dot(direction);
-    let c = oc.dot(oc) - radius * radius;
-    let discriminant = b * b - 4.0 * a * c;
+fn closest_intersection_or_surface_point(
+    p: Vec3, // point on ray
+    v: Vec3, // direction (doesn't have to be normalized)
+    c: Vec3, // sphere center
+    r: f32,  // sphere radius
+) -> Vec3 {
+    let oc = p - c;
+    let a = v.dot(v);
+    let b = 2.0 * v.dot(oc);
+    let c_term = oc.dot(oc) - r * r;
+    let discriminant = b * b - 4.0 * a * c_term;
 
-    if discriminant < 0.0 {
-        return forced_intersection(origin, direction, center, radius);
-        // return None;
-    }
+    if discriminant >= 0.0 {
+        // Ray hits the sphere
+        let sqrt_disc = discriminant.sqrt();
+        let t1 = (-b - sqrt_disc) / (2.0 * a);
+        let t2 = (-b + sqrt_disc) / (2.0 * a);
 
-    let sqrt_disc = discriminant.sqrt();
-    let t1 = (-b - sqrt_disc) / (2.0 * a);
-    let t2 = (-b + sqrt_disc) / (2.0 * a);
+        // Only consider points in the direction of the ray (t >= 0)
+        let t_closest = if t1 >= 0.0 {
+            t1
+        } else if t2 >= 0.0 {
+            t2
+        } else {
+            // Both behind the ray origin
+            return closest_point_on_surface(p, v, c, r);
+        };
 
-    let t = if t1 >= 0.0 {
-        t1
-    } else if t2 >= 0.0 {
-        t2
+        return p + t_closest * v;
     } else {
-        return forced_intersection(origin, direction, center, radius);
-    };
-
-    origin + direction * t
+        // No intersection; find closest point on sphere surface
+        return closest_point_on_surface(p, v, c, r);
+    }
 }
 
-fn forced_intersection(origin: Vec3, direction: Vec3, center: Vec3, radius: f32) -> Vec3 {
-    // Vector from origin to center
-    let to_center = center - origin;
+fn closest_point_on_surface(
+    p: Vec3, // ray origin
+    v: Vec3, // ray direction
+    c: Vec3, // sphere center
+    r: f32,  // radius
+) -> Vec3 {
+    // Closest point on ray to sphere center
+    let v_norm = v.normalize();
+    let to_center = c - p;
+    let t = to_center.dot(v_norm); // projected distance along ray
+    let closest_point = p + t * v_norm;
 
-    // Project to_center onto the plane perpendicular to direction
-    let projection = to_center - direction * to_center.dot(direction);
+    // Direction from sphere center to that point
+    let direction = (closest_point - c).normalize();
 
-    let fallback_direction = projection.normalize();
-
-    // Intersect this fallback ray from center in fallback direction
-    center + fallback_direction * radius
+    // Closest surface point in that direction
+    c + r * direction
 }
 
 fn calculate_camera_earth_view_bounding_box(
     camera_projection: &Projection,
     camera: &Camera,
     earth_position: Point,
-) -> Vec<geo::Polygon<f32>> {
-    let cam_pos = (camera_projection.calc_matrix() * camera.calc_matrix())
-        .inverse()
-        .project_point3(-Vec3::Z);
+) -> Vec<Coord<f32>> {
+    const N_RAYS: usize = 5;
+    let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
+    let cam_pos = inv_view_proj.project_point3(-Vec3::Z);
+    let cam_dir = (Vec3::ZERO - cam_pos).normalize();
 
-    // Compute camera forward direction (negative Z in view space, transformed to world space)
-    let camera_direction_vector = (Vec3::ZERO - cam_pos).normalize();
+    let (orth1, orth2) = cam_dir.any_orthonormal_pair();
+    let fov = camera_projection.fovy;
+    let half_fov = fov / 2.0;
 
-    let mut hit_points = vec![];
-    let hit_point = ray_sphere_intersect(cam_pos, camera_direction_vector, Vec3::ZERO, 1.);
-    hit_points.push(convert_point_on_surface_to_lat_lon(hit_point));
+    let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
 
-    let fov = camera_projection.fovy / 2.;
-
-    // Compute orthonormal basis for camera
-    let (cam_orth_vector_1, cam_orth_vector_2) = camera_direction_vector.any_orthonormal_pair();
-
-    let rotation_matrices = [
-        //Order matters
-        (
-            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
-        ),
-        (
-            Mat3::from_axis_angle(cam_orth_vector_1, -fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
-        ),
-        (
-            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, fov / 2.0),
-        ),
-        (
-            Mat3::from_axis_angle(cam_orth_vector_1, fov / 2.0),
-            Mat3::from_axis_angle(cam_orth_vector_2, -fov / 2.0),
-        ),
-    ];
-
-    let mut fov_rays = [Vec3::ZERO; 4];
-    for (i, (rm_1, rm_2)) in rotation_matrices.iter().enumerate() {
-        fov_rays[i] = (*rm_2 * (*rm_1 * camera_direction_vector)).normalize();
+    let angle_step = fov / (N_RAYS - 1) as f32;
+    let mut angle_offsets = [0.0f32; N_RAYS];
+    for i in 0..N_RAYS {
+        angle_offsets[i] = -half_fov + i as f32 * angle_step;
     }
 
-    // Compute intersection points with Earth's surface
-    let surface_intersection_points = fov_rays
-        .iter()
-        .filter_map(|ray| {
-            let intersection = ray_sphere_intersect(cam_pos, *ray, earth_position, 1.);
-            Some(convert_point_on_surface_to_lat_lon(intersection))
-        })
-        .collect::<Vec<Coord<f32>>>();
+    for &angle_v in &angle_offsets {
+        let qv = Quat::from_axis_angle(orth2, angle_v);
+        for &angle_u in &angle_offsets {
+            let qu = Quat::from_axis_angle(orth1, angle_u);
+            let ray_dir = (qu * qv * cam_dir).normalize();
 
-    let north_pole = Vec3::new(0., 0., 1.);
-    let south_pole = Vec3::new(0., 0., -1.);
-
-    hit_points.push(convert_point_on_surface_to_lat_lon(north_pole));
-    hit_points.push(convert_point_on_surface_to_lat_lon(south_pole));
-    let cam_distance_to_shpere_center = cam_pos.distance(Vec3::ZERO);
-
-    let north_pole_is_visible = if north_pole.distance(cam_pos) > cam_distance_to_shpere_center {
-        false
-    } else {
-        let ray_to_north_pole = (cam_pos - north_pole).normalize();
-
-        is_vector_in_cone(-ray_to_north_pole, camera_direction_vector, fov)
-    };
-
-    let south_pole_is_visible = if south_pole.distance(cam_pos) > cam_distance_to_shpere_center {
-        false
-    } else {
-        let ray_to_south_pole = (cam_pos - south_pole).normalize();
-
-        is_vector_in_cone(-ray_to_south_pole, camera_direction_vector, fov / 2.)
-    };
-
-    let crossing_meridian = surface_intersection_points
-        .clone()
-        .iter()
-        .fold(0.0, |acc, a| {
-            surface_intersection_points
-                .iter()
-                .map(|b| {
-                    let diff = (a.x - b.x).abs();
-                    diff.max(diff)
-                })
-                .fold(acc, f32::max)
-        })
-        > 180.;
-    let mut out = vec![];
-    if crossing_meridian {
-        out.push(vec![
-            surface_intersection_points[0],
-            coord! {x: 180.,y:surface_intersection_points[0].y},
-            coord! {x: 180.,y:surface_intersection_points[3].y},
-            surface_intersection_points[3],
-        ]);
-
-        out.push(vec![
-            surface_intersection_points[1],
-            coord! {x: -180.,y:surface_intersection_points[1].y},
-            coord! {x: -180.,y:surface_intersection_points[2].y},
-            surface_intersection_points[2],
-        ]);
-    } else {
-        hit_points.extend(surface_intersection_points);
-        out.push(hit_points);
-    };
-
-    if north_pole_is_visible {
-        for poly_i in 0..out.len() {
-            for point_i in 0..out[poly_i].len() {
-                let c = out[poly_i][point_i];
-                out[poly_i].push(coord! {x:c.x,y:-90.})
-            }
+            let point =
+                closest_intersection_or_surface_point(cam_pos, ray_dir, earth_position, 1.0);
+            surface_points.push(convert_point_on_surface_to_lat_lon(point));
         }
     }
 
-    if south_pole_is_visible {
-        for poly_i in 0..out.len() {
-            for point_i in 0..out[poly_i].len() {
-                let c = out[poly_i][point_i];
-                out[poly_i].push(coord! {x:c.x,y:90.})
-            }
-        }
-    }
-
-    return out
-        .into_iter()
-        .map(|x| Polygon::new(LineString::from(x), vec![]))
-        .collect();
+    surface_points
 }
 
 fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
@@ -634,7 +580,7 @@ fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
     } else {
         point.x.atan2(-point.y).to_degrees()
     };
-    let lat = -point.z.clamp(-1., 1.).asin().to_degrees();
+    let lat = (-point.z).clamp(-1., 1.).asin().to_degrees();
 
     coord! {x:lon,y:lat}
 }
@@ -690,8 +636,8 @@ impl Tiles {
             .map(|start| BufferSlot { start })
             .collect::<Vec<_>>();
 
-        #[cfg(feature = "debug")]
-        log::warn!("Allocated {} slots", free.len());
+        // #[cfg(feature = "debug")]
+        // log::warn!("Allocated {} slots", free.len());
 
         Self {
             levels,
@@ -702,25 +648,37 @@ impl Tiles {
         }
     }
 
-    pub fn get_intersection(&mut self, z: u32, polygons: &[Polygon<f32>]) -> Vec<(u32, u32, u32)> {
+    pub fn get_intersection(&mut self, z: u32, points: &[Coord<f32>]) -> Vec<(u32, u32, u32)> {
         let level = &self.levels[z as usize];
 
         let mut visible = HashSet::new();
 
-        for polygon in polygons {
-            let bounds = polygon.bounding_rect().unwrap();
-
-            let min_x = (bounds.min().x / level.step_x) as u32;
-            let min_y = (bounds.min().y / level.step_y) as u32;
-            let max_x = (bounds.max().x / level.step_x) as u32;
-            let max_y = (bounds.max().y / level.step_y) as u32;
-
-            for y in min_y..max_y {
-                for x in min_x..max_x {
-                    visible.insert((z, y, x));
-                }
-            }
+        for p in points {
+            visible.insert((z, (p.y / level.step_y) as u32, (p.x / level.step_x) as u32));
         }
+
+        #[cfg(feature = "debug")]
+        {
+            log::warn!("Visible: {:#?}", visible.len());
+            log::warn!("Visible: {:#?}", visible);
+        }
+        // for polygon in polygons {
+        //     let bounds = polygon.bounding_rect().unwrap();
+
+        //     #[cfg(feature = "debug")]
+        //     log::warn!("Polygon bounding_box: {:#?}", bounds);
+
+        //     let min_x = (bounds.min().x / level.step_x) as u32;
+        //     let min_y = (bounds.min().y / level.step_y) as u32;
+        //     let max_x = (bounds.max().x / level.step_x) as u32;
+        //     let max_y = (bounds.max().y / level.step_y) as u32;
+
+        //     for y in min_y..max_y {
+        //         for x in min_x..max_x {
+        //             visible.insert((z, y, x));
+        //         }
+        //     }
+        // }
 
         let not_visible_anymore = self.visible.difference(&visible);
 
