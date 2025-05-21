@@ -211,7 +211,7 @@ where
         let height = data.len();
         let width = data[0].len();
 
-        if height as u32 <= D::TILE_SIZE || width as u32 <= D::TILE_SIZE {
+        if height as u32 <= D::TILE_SIZE && width as u32 <= D::TILE_SIZE {
             parent.aggregate = D::aggregate(&data.iter().flatten().copied().collect::<Vec<_>>());
             parent.data = Some(data);
 
