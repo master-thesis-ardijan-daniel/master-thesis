@@ -1,6 +1,7 @@
 use backend::{Bounds, Dataset, Tile};
 use geo::Coord;
-use image::{DynamicImage, ImageBuffer, Rgba};
+use image::{DynamicImage, ImageBuffer, ImageReader, Rgba};
+use std::{fs::File, io::BufReader};
 
 pub struct EarthmapDataset {
     data: DynamicImage,
@@ -11,7 +12,16 @@ impl EarthmapDataset {
     where
         P: AsRef<std::path::Path>,
     {
-        let image = image::open(path).unwrap();
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+
+        let mut reader = ImageReader::new(reader).with_guessed_format().unwrap();
+
+        reader.no_limits();
+
+        let decoder = reader.into_decoder().unwrap();
+
+        let image = DynamicImage::from_decoder(decoder).unwrap();
 
         EarthmapDataset { data: image }
     }

@@ -5,34 +5,77 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use backend::{
-    serialize::{AlignedWriter, Serialize as _},
-    Bounds, GeoTree,
-};
+use backend::{deserialize::GeoTree, Bounds, Dataset};
+use bytemuck::Pod;
+use earth_map::EarthmapDataset;
 use geo::Coord;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use world::EarthmapDataset;
 
-mod world;
+mod earth_map;
+// mod light_pollution;
+// mod population;
+
+fn initialize_tree<P, F, D>(path: P, dataset: F) -> std::io::Result<GeoTree<D>>
+where
+    P: AsRef<std::path::Path>,
+    F: Fn() -> D,
+    D: Dataset,
+    D::Type: Copy + Pod,
+    D::AggregateType: Copy + Pod,
+{
+    if path.as_ref().try_exists()? {
+        return backend::deserialize::GeoTree::new(path);
+    }
+
+    {
+        let tree = backend::GeoTree::build(&dataset());
+        tree.write_to_file(&path)?;
+    }
+
+    GeoTree::new(path)
+}
 
 #[tokio::main]
-async fn main() {
-    let tree = {
-        let data = world::EarthmapDataset::new("./8081_earthmap10k.jpg");
-        GeoTree::build(&data)
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let earth_map_tree = {
+        let key = "EARTH_MAP_DATASET";
+        let dataset = || {
+            earth_map::EarthmapDataset::new(
+                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+            )
+        };
+
+        Arc::new(initialize_tree("earth_map.db", dataset)?)
     };
 
-    let writer = std::fs::File::create("test.db").unwrap();
-    let mut writer = AlignedWriter::new(writer);
-    tree.root.serialize(&mut writer).unwrap();
-    drop(writer);
+    // let _population_tree = {
+    //     let key = "POPULATION_DATASET";
+    //     let dataset = || {
+    //         population::PopulationDataset::new(
+    //             std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+    //         )
+    //     };
 
-    let tree = backend::deserialize::GeoTree::new("test.db").unwrap();
+    //     Arc::new(initialize_tree("population.db", dataset)?)
+    // };
+
+    // let _light_pollution_tree = {
+    //     let key = "LIGHT_POLLUTION_DATASET";
+    //     let dataset = || {
+    //         LightPollutionDataset::new(
+    //             std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+    //         )
+    //     };
+
+    //     Arc::new(initialize_tree("light_pollution.db", dataset)?)
+    // };
 
     let state = BackendState {
-        image_tree: Arc::new(tree),
+        earth_map_tree,
+        // _population_tree,
+        // _light_pollution_tree,
     };
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
@@ -47,14 +90,16 @@ async fn main() {
 
     println!("Listening on {}:{}", addr.ip(), addr.port());
 
-    axum::serve(listener, router.layer(TraceLayer::new_for_http()))
-        .await
-        .unwrap();
+    axum::serve(listener, router.layer(TraceLayer::new_for_http())).await?;
+
+    Ok(())
 }
 
 #[derive(Clone)]
 struct BackendState {
-    image_tree: Arc<backend::deserialize::GeoTree<EarthmapDataset>>,
+    earth_map_tree: Arc<GeoTree<EarthmapDataset>>,
+    // _population_tree: Arc<GeoTree<PopulationDataset>>,
+    // _light_pollution_tree: Arc<GeoTree<LightPollutionDataset>>,
 }
 
 #[derive(Deserialize)]
@@ -68,7 +113,7 @@ async fn get_tiles(
 ) -> impl IntoResponse {
     let query = Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. });
 
-    Json(state.image_tree.get_tiles(query, tile_query.level)).into_response()
+    Json(state.earth_map_tree.get_tiles(query, tile_query.level)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -89,5 +134,5 @@ async fn get_tile(
         HeaderValue::from_static("public, max-age=31536000, immutable"),
     );
 
-    (headers, Json(state.image_tree.get_tile(x, y, z))).into_response()
+    (headers, Json(state.earth_map_tree.get_tile(x, y, z))).into_response()
 }

@@ -35,7 +35,19 @@ let
   native = rec {
     args = commonArgs // {
       cargoExtraArgs = "--package=backend --locked";
+
+      buildInputs = with pkgs; [
+        gdal
+      ];
+      
+      nativeBuildInputs = with pkgs; [
+        pkg-config
+        clang
+      ];
+      
+      LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
     };
+
     cargoArtifacts = craneLib.buildDepsOnly args;
   };
 
@@ -81,7 +93,7 @@ in
       );
 
       thesis-nextest = craneLib.cargoNextest (
-        commonArgs // {
+        native.args // {
           inherit (native) cargoArtifacts;
           cargoNextestExtraArgs = "--no-tests=pass";
           doCheck = true;
@@ -134,6 +146,8 @@ in
         rust-analyzer
         wgsl-analyzer
       ];
+
+      LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
       shellHook = ''
         export ASSETS_DIR=$PWD/src/frontend/dist;

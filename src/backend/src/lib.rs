@@ -1,5 +1,7 @@
+use std::{fs::File, io::Result, path::Path};
+
 use geo::{Coord, Intersects, Rect};
-use serde::Serialize;
+use serialize::{AlignedWriter, Serialize};
 
 pub mod deserialize;
 pub mod serialize;
@@ -101,7 +103,7 @@ where
     pub root: TileNode<D::Type, D::AggregateType>,
 }
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 pub struct TileRef<'a, T, U> {
     pub bounds: &'a Bounds,
     pub data: Option<&'a Tile<T>>,
@@ -219,53 +221,69 @@ where
         let child_width = width / D::CHILDREN_PER_AXIS;
         let child_height = height / D::CHILDREN_PER_AXIS;
 
-        for i in 0..D::CHILDREN_PER_AXIS {
-            let mut row = Vec::new();
+        parent.children = (0..D::CHILDREN_PER_AXIS)
+            .map(|i| {
+                (0..D::CHILDREN_PER_AXIS)
+                    .map(|j| {
+                        let x_start = j * child_width;
+                        let y_start = i * child_height;
 
-            for j in 0..D::CHILDREN_PER_AXIS {
-                let x_start = j * child_width;
-                let y_start = i * child_height;
+                        let actual_width = if j == D::CHILDREN_PER_AXIS - 1 {
+                            width - x_start
+                        } else {
+                            child_width
+                        };
 
-                let actual_width = if j == D::CHILDREN_PER_AXIS - 1 {
-                    width - x_start
-                } else {
-                    child_width
-                };
+                        let actual_height = if i == D::CHILDREN_PER_AXIS - 1 {
+                            height - y_start
+                        } else {
+                            child_height
+                        };
 
-                let actual_height = if i == D::CHILDREN_PER_AXIS - 1 {
-                    height - y_start
-                } else {
-                    child_height
-                };
+                        let child_data =
+                            slice::<D>(&data, x_start, y_start, actual_width, actual_height);
 
-                let child_data = slice::<D>(&data, x_start, y_start, actual_width, actual_height);
+                        let bounds_delta_w = parent.bounds.width() / D::CHILDREN_PER_AXIS as f32;
+                        let bounds_delta_h = parent.bounds.height() / D::CHILDREN_PER_AXIS as f32;
+                        let bounds = Rect::new(
+                            Coord {
+                                x: parent.bounds.min().x + (j as f32 * bounds_delta_w),
+                                y: parent.bounds.max().y - (i as f32 * bounds_delta_h),
+                            },
+                            Coord {
+                                x: parent.bounds.min().x + ((j + 1) as f32 * bounds_delta_w),
+                                y: parent.bounds.max().y - ((i + 1) as f32 * bounds_delta_h),
+                            },
+                        );
 
-                let bounds_delta_w = parent.bounds.width() / D::CHILDREN_PER_AXIS as f32;
-                let bounds_delta_h = parent.bounds.height() / D::CHILDREN_PER_AXIS as f32;
-                let bounds = Rect::new(
-                    Coord {
-                        x: parent.bounds.min().x + (j as f32 * bounds_delta_w),
-                        y: parent.bounds.max().y - (i as f32 * bounds_delta_h),
-                    },
-                    Coord {
-                        x: parent.bounds.min().x + ((j + 1) as f32 * bounds_delta_w),
-                        y: parent.bounds.max().y - ((i + 1) as f32 * bounds_delta_h),
-                    },
-                );
+                        let mut child = TileNode {
+                            bounds,
+                            data: None,
+                            aggregate: None,
+                            children: Vec::new(),
+                        };
 
-                let mut child = TileNode {
-                    bounds,
-                    data: None,
-                    aggregate: None,
-                    children: Vec::new(),
-                };
+                        Self::recursive_slice(&mut child, child_data);
 
-                Self::recursive_slice(&mut child, child_data);
+                        child
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+    }
 
-                row.push(child);
-            }
+    pub fn write_to_file<P>(&self, path: P) -> Result<()>
+    where
+        P: AsRef<Path>,
+        TileNode<D::Type, D::AggregateType>: Serialize,
+    {
+        let Ok(file) = File::create_new(path) else {
+            return Ok(());
+        };
 
-            parent.children.push(row);
-        }
+        let mut writer = AlignedWriter::new(&file);
+        self.root.serialize(&mut writer)?;
+
+        Ok(())
     }
 }

@@ -11,7 +11,7 @@ where
     D: Dataset,
 {
     data: memmap2::Mmap,
-    _dataset: std::marker::PhantomData<D>,
+    _dataset: std::marker::PhantomData<fn() -> D>,
 }
 
 impl<D> GeoTree<D>
