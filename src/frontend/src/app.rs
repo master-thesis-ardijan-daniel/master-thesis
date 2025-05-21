@@ -13,7 +13,7 @@ use crate::{safe_get_subdivision_level, types::PerformanceMetrics, State};
 
 #[derive(Debug)]
 pub enum CustomEvent {
-    CreateState(State),
+    CreateState(Box<State>),
     HttpResponse(CustomResponseType),
 }
 
@@ -70,9 +70,9 @@ impl ApplicationHandler<CustomEvent> for App {
             wasm_bindgen_futures::spawn_local(async move {
                 proxy_eventloop
                     .clone()
-                    .send_event(CustomEvent::CreateState(
+                    .send_event(CustomEvent::CreateState(Box::new(
                         State::new(_window, proxy_eventloop).await,
-                    ))
+                    )))
                     .unwrap();
             });
         }
@@ -150,7 +150,7 @@ impl ApplicationHandler<CustomEvent> for App {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: CustomEvent) {
         match (event, &mut self.state) {
             (CustomEvent::CreateState(state), None) => {
-                self.state = Some(state);
+                self.state = Some(*state);
             }
 
             (
