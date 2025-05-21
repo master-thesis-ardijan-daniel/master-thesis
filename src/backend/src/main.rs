@@ -9,15 +9,13 @@ use backend::{deserialize::GeoTree, Bounds, Dataset};
 use bytemuck::Pod;
 use earth_map::EarthmapDataset;
 use geo::Coord;
-use light_pollution::LightPollutionDataset;
-use population::PopulationDataset;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
 mod earth_map;
-mod light_pollution;
-mod population;
+// mod light_pollution;
+// mod population;
 
 fn initialize_tree<P, F, D>(path: P, dataset: F) -> std::io::Result<GeoTree<D>>
 where
@@ -52,32 +50,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(initialize_tree("earth_map.db", dataset)?)
     };
 
-    let _population_tree = {
-        let key = "POPULATION_DATASET";
-        let dataset = || {
-            population::PopulationDataset::new(
-                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
-            )
-        };
+    // let _population_tree = {
+    //     let key = "POPULATION_DATASET";
+    //     let dataset = || {
+    //         population::PopulationDataset::new(
+    //             std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+    //         )
+    //     };
 
-        Arc::new(initialize_tree("population.db", dataset)?)
-    };
+    //     Arc::new(initialize_tree("population.db", dataset)?)
+    // };
 
-    let _light_pollution_tree = {
-        let key = "LIGHT_POLLUTION_DATASET";
-        let dataset = || {
-            LightPollutionDataset::new(
-                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
-            )
-        };
+    // let _light_pollution_tree = {
+    //     let key = "LIGHT_POLLUTION_DATASET";
+    //     let dataset = || {
+    //         LightPollutionDataset::new(
+    //             std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+    //         )
+    //     };
 
-        Arc::new(initialize_tree("light_pollution.db", dataset)?)
-    };
+    //     Arc::new(initialize_tree("light_pollution.db", dataset)?)
+    // };
 
     let state = BackendState {
         earth_map_tree,
-        _population_tree,
-        _light_pollution_tree,
+        // _population_tree,
+        // _light_pollution_tree,
     };
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
@@ -100,8 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Clone)]
 struct BackendState {
     earth_map_tree: Arc<GeoTree<EarthmapDataset>>,
-    _population_tree: Arc<GeoTree<PopulationDataset>>,
-    _light_pollution_tree: Arc<GeoTree<LightPollutionDataset>>,
+    // _population_tree: Arc<GeoTree<PopulationDataset>>,
+    // _light_pollution_tree: Arc<GeoTree<LightPollutionDataset>>,
 }
 
 #[derive(Deserialize)]
