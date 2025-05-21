@@ -111,14 +111,14 @@ impl EarthState {
         );
 
         let metadata = TileMetadata::from(&new_tile);
-        #[cfg(feature = "debug")]
-        {
-            log::warn!(
-                "Metadata written: {:#?} at {}",
-                metadata,
-                (slot.start * size_of::<TileMetadata>()) as u64
-            );
-        }
+        // #[cfg(feature = "debug")]
+        // {
+        //     log::warn!(
+        //         "Metadata written: {:#?} at {}",
+        //         metadata,
+        //         (slot.start * size_of::<TileMetadata>()) as u64
+        //     );
+        // }
 
         queue.write_buffer(
             &self.tile_metadata_buffer,
@@ -357,10 +357,10 @@ impl EarthState {
         let fetch = self.tiles_.get_intersection(3, &fov_intersections);
 
         for f in fetch {
-            #[cfg(feature = "debug")]
-            {
-                log::warn!("fetching {:#?}", f);
-            }
+            // #[cfg(feature = "debug")]
+            // {
+            // log::warn!("fetching {:#?}", f);
+            // }
             let proxy = self.eventloop.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let tile = gloo_net::http::Request::get(&format!("/tile/{}/{}/{}", f.0, f.1, f.2))
@@ -540,10 +540,10 @@ fn calculate_camera_earth_view_bounding_box(
     camera: &Camera,
     earth_position: Point,
 ) -> Vec<Coord<f32>> {
-    const N_RAYS: usize = 5;
+    const N_RAYS: usize = 6;
     let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
-    let cam_pos = inv_view_proj.project_point3(-Vec3::Z);
-    let cam_dir = (Vec3::ZERO - cam_pos).normalize();
+    let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
+    let cam_dir = -cam_pos.normalize();
 
     let (orth1, orth2) = cam_dir.any_orthonormal_pair();
     let fov = camera_projection.fovy;
@@ -573,12 +573,11 @@ fn calculate_camera_earth_view_bounding_box(
 }
 
 fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
-    // #[cfg(feature = "debug")]
-    // log::warn!("DDD1 {:#?}", point);
+    let point = point.normalize();
     let lon = if point.x == 0.0 && point.y == 0.0 {
         0.0
     } else {
-        point.x.atan2(-point.y).to_degrees()
+        (-point.x.atan2(point.y)).to_degrees()
     };
     let lat = (-point.z).clamp(-1., 1.).asin().to_degrees();
 
@@ -651,11 +650,17 @@ impl Tiles {
         let mut visible = HashSet::new();
 
         for p in points {
-            visible.insert((z, (p.y / level.step_y) as u32, (p.x / level.step_x) as u32));
+            visible.insert((
+                z,
+                ((90. - p.y) / level.step_y).floor() as u32,
+                ((180. + p.x) / level.step_x).floor() as u32,
+            ));
         }
 
-        self.marked.retain(|tile| !visible.contains(tile));
+        // #[cfg(feature = "debug")]
+        // log::warn!("n_visible: {}", visible.len());
 
+        self.marked.retain(|tile| !visible.contains(tile));
         let not_visible_anymore = self.visible.difference(&visible);
 
         for &tile in not_visible_anymore {

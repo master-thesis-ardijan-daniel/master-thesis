@@ -54,11 +54,8 @@ impl Dataset for EarthmapDataset {
 
     fn bounds(&self) -> Bounds {
         Bounds::new(
-            Coord {
-                x: -180.0,
-                y: -90.0,
-            }, // Southwest corner (min longitude, min latitude)
-            Coord { x: 180.0, y: 90.0 }, // Northeast corner (max longitude, max latitude)
+            Coord { x: -180.0, y: 90.0 }, // Northwest
+            Coord { x: 180.0, y: -90.0 }, // Southeast
         )
     }
 
