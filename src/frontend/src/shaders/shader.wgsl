@@ -52,8 +52,8 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     const PI: f32 = 3.14159265358979323846264338327950288;
 
     let pos = normalize(in.pos);
-    let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) +0.5;
-    let lat = (asin(-pos.z) / PI) ;
+    let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
+    let lat = (asin(-pos.z) / PI)+0.5 ;
 
     for (var layer = 0; layer < 32 ; layer++){
         let metadata = metadata.tiles[layer];
@@ -69,21 +69,21 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         let u = (lon - nw_lon) / (se_lon - nw_lon);
-        let v = (lat - se_lat) / (nw_lat - se_lat);
+        let v = 1.-(lat - se_lat) / (nw_lat - se_lat);
 
 
-        let scaled_u = u * f32(metadata.width)/256.;
-        let scaled_v = v * f32(metadata.height)/256.;
+        // let scaled_u = u * f32(metadata.width)/256.;
+        // let scaled_v = v * f32(metadata.height)/256.;
         // Scale u and v
         // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
-        return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
+        // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
+        return textureSample(t_diffuse, s_diffuse, vec2<f32>(u,v ), layer);
     }
 
-    // return vec4<f32>(0., lon, lat, 1.0);
+    return vec4<f32>(0., lon, lat, 1.0);
 
 
-    // return vec4<f32>(0.0, 0.0, lat, 1.0);
-    discard;
+    // discard;
 
     // instead of discard, write to buffer that this coordinate has no color.
 }

@@ -348,8 +348,8 @@ impl EarthState {
         let fov_intersections =
             calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        // #[cfg(feature = "debug")]
-        // log::warn!("tile bounds! {:#?}", fov_intersections);
+        #[cfg(feature = "debug")]
+        log::warn!("tile bounds! {:#?}", fov_intersections);
 
         // self.test_bounding_box(&fov_intersections, queue);
         // return;
@@ -540,10 +540,10 @@ fn calculate_camera_earth_view_bounding_box(
     camera: &Camera,
     earth_position: Point,
 ) -> Vec<Coord<f32>> {
-    const N_RAYS: usize = 5;
+    const N_RAYS: usize = 3;
     let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
-    let cam_pos = inv_view_proj.project_point3(-Vec3::Z);
-    let cam_dir = (Vec3::ZERO - cam_pos).normalize();
+    let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
+    let cam_dir = -cam_pos.normalize();
 
     let (orth1, orth2) = cam_dir.any_orthonormal_pair();
     let fov = camera_projection.fovy;
@@ -551,7 +551,7 @@ fn calculate_camera_earth_view_bounding_box(
 
     let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
 
-    let angle_step = fov / (N_RAYS - 1) as f32;
+    let angle_step = fov / (N_RAYS + 1) as f32;
     let mut angle_offsets = [0.0f32; N_RAYS];
     for i in 0..N_RAYS {
         angle_offsets[i] = -half_fov + i as f32 * angle_step;
@@ -573,14 +573,13 @@ fn calculate_camera_earth_view_bounding_box(
 }
 
 fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
-    // #[cfg(feature = "debug")]
-    // log::warn!("DDD1 {:#?}", point);
+    let point = point.normalize();
     let lon = if point.x == 0.0 && point.y == 0.0 {
         0.0
     } else {
-        point.x.atan2(-point.y).to_degrees()
+        (-point.x.atan2(point.y)).to_degrees()
     };
-    let lat = (point.z).clamp(-1., 1.).asin().to_degrees();
+    let lat = (-point.z).clamp(-1., 1.).asin().to_degrees();
 
     coord! {x:lon,y:lat}
 }
