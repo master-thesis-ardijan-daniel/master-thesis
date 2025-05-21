@@ -1,13 +1,7 @@
-use std::{f32::consts::PI, sync::Arc};
+use std::sync::Arc;
 
-use crate::{
-    app::CustomEvent,
-    camera::{Camera, CameraState, Projection},
-    types::earth::EarthState,
-};
+use crate::{app::CustomEvent, camera::CameraState, types::earth::EarthState};
 use depth_texture::DepthTexture;
-use geo::{CoordsIter, LineString, Polygon};
-use glam::{Mat3, Vec3, Vec4Swizzles};
 use touch::TouchState;
 use web_time::Duration;
 use wgpu::FragmentState;
@@ -16,8 +10,6 @@ use winit::{event_loop::EventLoopProxy, window::Window};
 mod depth_texture;
 mod input;
 mod touch;
-
-type Point = glam::Vec3;
 
 pub enum AnimationState {
     Animating,

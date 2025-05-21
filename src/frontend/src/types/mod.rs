@@ -5,11 +5,9 @@ pub use earth::*;
 pub mod performance_metrics;
 pub use performance_metrics::*;
 
-use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
-use glam::{Vec3, Vec3Swizzles};
+use glam::Vec3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HashablePoint(Vec3);

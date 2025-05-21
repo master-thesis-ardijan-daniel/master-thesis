@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use common::{Bounds, TileMetadata, TileResponse};
-use geo::{coord, Coord, Rect};
+use geo::{coord, Coord};
 use glam::{Quat, Vec3, Vec3Swizzles};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -109,7 +109,7 @@ impl EarthState {
 
         queue.write_buffer(
             &self.tile_metadata_buffer,
-            (*slot as usize * size_of::<TileMetadata>()) as u64,
+            ({ *slot } * size_of::<TileMetadata>()) as u64,
             bytemuck::bytes_of(&metadata),
         );
     }
@@ -427,10 +427,10 @@ fn closest_intersection_or_surface_point(
             return closest_point_on_surface(p, v, c, r);
         };
 
-        return p + t_closest * v;
+        p + t_closest * v
     } else {
         // No intersection; find closest point on sphere surface
-        return closest_point_on_surface(p, v, c, r);
+        closest_point_on_surface(p, v, c, r)
     }
 }
 
@@ -471,8 +471,11 @@ fn calculate_camera_earth_view_bounding_box(
 
     let angle_step = fov / (N_RAYS - 1) as f32;
     let mut angle_offsets = [0.0f32; N_RAYS];
-    for i in 0..N_RAYS {
-        angle_offsets[i] = -half_fov + i as f32 * angle_step;
+
+    for (i, entry) in angle_offsets.iter_mut().enumerate().take(N_RAYS) {
+        let mut angle_offset = -half_fov + i as f32 * angle_step;
+
+        std::mem::swap(entry, &mut angle_offset);
     }
 
     for &angle_v in &angle_offsets {

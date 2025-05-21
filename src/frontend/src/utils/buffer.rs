@@ -52,7 +52,7 @@ pub struct BufferAllocator {
 
 impl BufferAllocator {
     pub fn new(levels: Vec<Level>, slots: usize) -> Self {
-        let free = (0..slots).map(|slot| BufferSlot(slot)).collect();
+        let free = (0..slots).map(BufferSlot).collect();
 
         Self {
             levels,

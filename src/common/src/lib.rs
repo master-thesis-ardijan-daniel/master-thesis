@@ -57,8 +57,6 @@ where
 
 impl<T> From<(&TileResponse<T>, u32)> for TileMetadata {
     fn from((tile, level): (&TileResponse<T>, u32)) -> Self {
-        #[cfg(feature = "debug")]
-        log::warn!("tile bounds incoming {:#?}", tile.bounds);
         Self {
             nw_lat: tile.bounds.max().y,
             nw_lon: tile.bounds.min().x,
