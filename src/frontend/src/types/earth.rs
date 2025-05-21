@@ -1,11 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::env::current_dir;
+use std::collections::HashMap;
 
 use common::{Bounds, TileMetadata, TileResponse};
-use geo::{coord, Area, BoundingRect, Contains, Coord, Distance, Euclidean, Intersects, Rect};
-use geo::{CoordsIter, LineString, Polygon};
-use glam::{Mat3, Quat, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
-// use image::math::Rect;
+use geo::{coord, Coord, Rect};
+use glam::{Quat, Vec3, Vec3Swizzles};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -16,8 +13,11 @@ use wgpu::{
 };
 use winit::event_loop::EventLoopProxy;
 
-use crate::app::CustomEvent;
-use crate::camera::{Camera, Projection};
+use crate::{
+    app::CustomEvent,
+    camera::{Camera, Projection},
+    utils::buffer::{BufferAllocator, BufferSlot, Level},
+};
 
 use super::Icosphere;
 
@@ -25,8 +25,6 @@ type Point = Vec3;
 
 const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
-
-// const TEXTURE_ATLAS_SIZE: u32 = 2048;
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -46,33 +44,28 @@ pub struct EarthState {
     num_indices: u32,
     texture_buffer: wgpu::Texture,
     texture_bind_group: wgpu::BindGroup,
-    pub tiles: Vec<TileResponse<[u8; 4]>>,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     tile_metadata_buffer: Buffer,
     eventloop: EventLoopProxy<CustomEvent>,
-    finished_creation: bool,
 
-    tiles_: Tiles,
-    tile: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
+    buffer_allocator: BufferAllocator,
+    tile_map: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
 }
 
 impl EarthState {
     pub fn insert_tile(&mut self, id: (u32, u32, u32), data: TileResponse<[u8; 4]>) {
-        // #[cfg(feature = "debug")]
-        // log::warn!("Inserted tile {:#?}", id);
-
-        self.tile.insert(id, data);
+        self.tile_map.insert(id, data);
     }
 
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
-        let tiles = std::mem::take(&mut self.tile);
+        let tiles = std::mem::take(&mut self.tile_map);
 
         for (id, tile) in tiles.into_iter() {
-            let Some(&slot) = self.tiles_.allocated.get(&id) else {
+            let Some(&slot) = self.buffer_allocator.slot(&id) else {
                 continue;
             };
 
-            self.write_a_single_tile_to_buffer(id, tile, &slot, queue);
+            self.write_a_single_tile_to_buffer(id, tile, slot, queue);
         }
     }
 
@@ -80,7 +73,7 @@ impl EarthState {
         &mut self,
         id: (u32, u32, u32),
         new_tile: TileResponse<[u8; 4]>,
-        slot: &BufferSlot,
+        slot: BufferSlot,
         queue: &Queue,
     ) {
         queue.write_texture(
@@ -90,7 +83,7 @@ impl EarthState {
                 origin: Origin3d {
                     x: 0,
                     y: 0,
-                    z: slot.start as u32,
+                    z: *slot as u32,
                 },
                 aspect: TextureAspect::All,
             },
@@ -113,48 +106,12 @@ impl EarthState {
         );
 
         let metadata = TileMetadata::from((&new_tile, id.0));
-        // #[cfg(feature = "debug")]
-        // {
-        //     log::warn!(
-        //         "Metadata written: {:#?} at {}",
-        //         metadata,
-        //         (slot.start * size_of::<TileMetadata>()) as u64
-        //     );
-        // }
 
         queue.write_buffer(
             &self.tile_metadata_buffer,
-            (slot.start * size_of::<TileMetadata>()) as u64,
+            (*slot as usize * size_of::<TileMetadata>()) as u64,
             bytemuck::bytes_of(&metadata),
         );
-    }
-
-    pub fn fetch_tiles(&self, url: String) {
-        // #[cfg(target_arch = "wasm32")]
-
-        {
-            let proxy = self.eventloop.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let raw_data = gloo_net::http::Request::get(&url)
-                    .query([("level", "1")])
-                    .send()
-                    .await
-                    .expect("Error, request failed! ");
-
-                // #[cfg(feature = "debug")]
-                // log::warn!("Tiles requested");
-
-                let tiles = raw_data
-                    .json()
-                    .await
-                    .expect("Unable to deserialize response, from tile request");
-                proxy
-                    .send_event(CustomEvent::HttpResponse(
-                        crate::app::CustomResponseType::StartupTileResponse(tiles),
-                    ))
-                    .unwrap();
-            });
-        }
     }
 
     pub fn create(device: &Device, eventloop: EventLoopProxy<CustomEvent>) -> Self {
@@ -262,11 +219,6 @@ impl EarthState {
             ],
         });
 
-        let tiles = vec![TileResponse {
-            data: vec![vec![[125u8; 4]; 256]; 256],
-            bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
-        }];
-
         let levels = (0..=4)
             .map(|level| {
                 Level::new(
@@ -278,8 +230,8 @@ impl EarthState {
             .collect();
 
         Self {
-            tiles_: Tiles::new(levels, 64),
-            tile: HashMap::new(),
+            tile_map: HashMap::new(),
+            buffer_allocator: BufferAllocator::new(levels, 64),
 
             eventloop,
             vertex_buffer,
@@ -287,7 +239,6 @@ impl EarthState {
             previous_output_as_lines: false,
             current_output_as_lines: false,
             update_tile_buffer: true,
-            finished_creation: false,
             texture_bind_group_layout,
 
             icosphere,
@@ -298,7 +249,6 @@ impl EarthState {
             texture_buffer,
             texture_bind_group,
             tile_metadata_buffer,
-            tiles,
         }
     }
 
@@ -321,63 +271,33 @@ impl EarthState {
     pub fn set_output_to_lines(&mut self, output_as_lines: bool) {
         self.current_output_as_lines = output_as_lines;
     }
-    pub fn test_bounding_box(&mut self, polygons: &[Coord<f32>], queue: &Queue) {
-        let mut out = HashMap::new();
 
-        for (i, polygon) in polygons.iter().enumerate() {
-            let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
-
-            let tile = TileResponse {
-                data: texture,
-
-                bounds: Rect::new(
-                    coord! {x: polygon.x,y:polygon.y},
-                    coord! {x: polygon.x+0.4,y:polygon.y+0.4},
-                ),
-            };
-
-            self.write_a_single_tile_to_buffer((0, 0, 0), tile, &BufferSlot { start: i }, queue);
-            // #[cfg(feature = "debug")]
-            // log::warn!("tile bounds! {:#?}", tile.bounds,);
-        }
-
-        self.update_tile_buffer = true;
-
-        self.tile = out;
-    }
-
-    pub fn tiling_logic(&mut self, projection: &Projection, camera: &Camera, queue: &Queue) {
+    pub fn update_visible_tiles(&mut self, projection: &Projection, camera: &Camera) {
         let fov_intersections =
             calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        // #[cfg(feature = "debug")]
-        // log::warn!("tile bounds! {:#?}", fov_intersections.len());
+        let allocations = self.buffer_allocator.allocate(
+            self.buffer_allocator.current_level as u32,
+            &fov_intersections,
+        );
 
-        // self.test_bounding_box(&fov_intersections, queue);
-        // return;
-
-        let fetch = self
-            .tiles_
-            .get_intersection(self.tiles_.current_level as u32, &fov_intersections);
-
-        for f in fetch {
-            // #[cfg(feature = "debug")]
-            // {
-            // log::warn!("fetching {:#?}", f);
-            // }
+        for tile_id in allocations {
             let proxy = self.eventloop.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let tile = gloo_net::http::Request::get(&format!("/tile/{}/{}/{}", f.0, f.1, f.2))
-                    .send()
-                    .await
-                    .unwrap()
-                    .json()
-                    .await
-                    .unwrap();
+                let tile = gloo_net::http::Request::get(&format!(
+                    "/tile/{}/{}/{}",
+                    tile_id.0, tile_id.1, tile_id.2
+                ))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
 
                 proxy
                     .send_event(CustomEvent::HttpResponse(
-                        crate::app::CustomResponseType::TileResponse(tile, f),
+                        crate::app::CustomResponseType::TileResponse(tile, tile_id),
                     ))
                     .unwrap();
             });
@@ -385,12 +305,6 @@ impl EarthState {
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
-        if !self.finished_creation {
-            self.finished_creation = true;
-            // the response handler will set self.update_tiles_buffer to true;
-            // self.fetch_tiles("/tiles".to_string());
-        }
-
         if self.update_tile_buffer {
             self.rewrite_tiles(queue);
             self.update_tile_buffer = false;
@@ -586,129 +500,4 @@ fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
     let lat = (-point.z).clamp(-1., 1.).asin().to_degrees();
 
     coord! {x:lon,y:lat}
-}
-
-fn is_vector_in_cone(vector: Vec3, cone_axis: Vec3, cone_angle: f32) -> bool {
-    let cos_angle = vector.dot(cone_axis).clamp(-1., 1.);
-
-    cos_angle >= cone_angle.cos()
-}
-
-#[derive(Debug)]
-struct Tiles {
-    levels: Vec<Level>,
-    pub current_level: usize,
-
-    visible: HashSet<(u32, u32, u32)>,
-    allocated: HashMap<(u32, u32, u32), BufferSlot>,
-
-    marked: VecDeque<(u32, u32, u32)>,
-    free: VecDeque<BufferSlot>,
-}
-
-#[derive(Debug, Copy, Clone)]
-struct BufferSlot {
-    start: usize,
-}
-
-#[derive(Debug)]
-struct Level {
-    step_x: f32,
-    step_y: f32,
-}
-
-impl Level {
-    pub fn new(bounds: Bounds, width: usize, height: usize) -> Self {
-        let step_x = bounds.width() / width as f32;
-        let step_y = bounds.height() / height as f32;
-
-        Self { step_x, step_y }
-    }
-}
-
-impl Tiles {
-    pub fn new(levels: Vec<Level>, slots: usize) -> Self {
-        let free = (0..slots).map(|start| BufferSlot { start }).collect();
-
-        Self {
-            levels,
-            current_level: 0,
-
-            visible: HashSet::new(),
-            free,
-            marked: VecDeque::new(),
-            allocated: HashMap::new(),
-        }
-    }
-
-    pub fn get_intersection(&mut self, z: u32, points: &[Coord<f32>]) -> Vec<(u32, u32, u32)> {
-        let level = &self.levels[self.current_level];
-
-        let mut visible = HashSet::new();
-
-        for p in points {
-            visible.insert((
-                z,
-                ((90. - p.y) / level.step_y).floor() as u32,
-                ((180. + p.x) / level.step_x).floor() as u32,
-            ));
-        }
-
-        // Remove tiles from deallocation queue if they are
-        // now visible again.
-        self.marked.retain(|tile| !visible.contains(tile));
-
-        // Visible in current frame, but not for the current
-        // zoom level. We want to queue these tiles available
-        // for slot stealing.
-        let visible_but_different_zoom_level = self
-            .visible
-            .iter()
-            .filter(|(z, _, _)| (*z as usize) < self.current_level)
-            .collect::<HashSet<_>>();
-
-        if visible.len() < 5 {
-            self.current_level = (self.current_level + 1).min(self.levels.len().saturating_sub(1));
-        }
-
-        if visible.len() > 10 {
-            self.current_level = self.current_level.saturating_sub(1);
-        }
-
-        // Tiles visible in previous frame, but not visible in current frame
-        let not_visible_anymore = self.visible.difference(&visible).collect::<HashSet<_>>();
-
-        // Mark tiles available for slot stealing
-        let to_be_marked = not_visible_anymore.union(&visible_but_different_zoom_level);
-
-        for &&tile in to_be_marked {
-            self.marked.push_back(tile);
-        }
-
-        let mut to_be_fetched = Vec::new();
-
-        for &tile in &visible {
-            if self.allocated.contains_key(&tile) {
-                // Tile is already allocated
-                continue;
-            }
-
-            let slot = self.free.pop_front().or_else(|| {
-                // No free slot found, steal a slot
-
-                self.marked
-                    .pop_front()
-                    .and_then(|tile| self.allocated.remove(&tile))
-            });
-
-            if let Some(slot) = slot {
-                self.allocated.insert(tile, slot);
-                to_be_fetched.push(tile);
-            }
-        }
-
-        self.visible = visible;
-
-        to_be_fetched
-    }
 }

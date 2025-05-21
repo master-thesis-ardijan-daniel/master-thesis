@@ -256,10 +256,9 @@ impl State {
 
     pub fn update(&mut self) {
         self.earth_state.update(&self.queue, &self.device);
-        self.earth_state.tiling_logic(
+        self.earth_state.update_visible_tiles(
             &self.camera_state.controller.projection,
             &self.camera_state.controller.camera,
-            &self.queue,
         );
 
         if let AnimationState::Animating = self.camera_state.update(&self.queue, self.delta) {
