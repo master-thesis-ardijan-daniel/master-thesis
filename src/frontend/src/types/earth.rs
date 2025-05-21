@@ -267,7 +267,7 @@ impl EarthState {
             bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
         }];
 
-        let levels = (0..4)
+        let levels = (0..=4)
             .map(|level| {
                 Level::new(
                     Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
@@ -613,9 +613,6 @@ struct BufferSlot {
 
 #[derive(Debug)]
 struct Level {
-    bounds: Bounds,
-    width: usize,
-    height: usize,
     step_x: f32,
     step_y: f32,
 }
@@ -625,13 +622,7 @@ impl Level {
         let step_x = bounds.width() / width as f32;
         let step_y = bounds.height() / height as f32;
 
-        Self {
-            bounds,
-            width,
-            height,
-            step_x,
-            step_y,
-        }
+        Self { step_x, step_y }
     }
 }
 
@@ -663,7 +654,20 @@ impl Tiles {
             ));
         }
 
-        if visible.len() < 3 {
+        // Remove tiles from deallocation queue if they are
+        // now visible again.
+        self.marked.retain(|tile| !visible.contains(tile));
+
+        // Visible in current frame, but not for the current
+        // zoom level. We want to queue these tiles available
+        // for slot stealing.
+        let visible_but_different_zoom_level = self
+            .visible
+            .iter()
+            .filter(|(z, _, _)| (*z as usize) < self.current_level)
+            .collect::<HashSet<_>>();
+
+        if visible.len() < 5 {
             self.current_level = (self.current_level + 1).min(self.levels.len().saturating_sub(1));
         }
 
@@ -671,13 +675,13 @@ impl Tiles {
             self.current_level = self.current_level.saturating_sub(1);
         }
 
-        #[cfg(feature = "debug")]
-        log::warn!("level: {}", self.current_level);
+        // Tiles visible in previous frame, but not visible in current frame
+        let not_visible_anymore = self.visible.difference(&visible).collect::<HashSet<_>>();
 
-        self.marked.retain(|tile| !visible.contains(tile));
-        let not_visible_anymore = self.visible.difference(&visible);
+        // Mark tiles available for slot stealing
+        let to_be_marked = not_visible_anymore.union(&visible_but_different_zoom_level);
 
-        for &tile in not_visible_anymore {
+        for &&tile in to_be_marked {
             self.marked.push_back(tile);
         }
 
