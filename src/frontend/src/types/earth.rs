@@ -269,8 +269,8 @@ impl EarthState {
             .map(|level| {
                 Level::new(
                     Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
-                    4_usize.pow(level),
-                    4_usize.pow(level),
+                    2_usize.pow(level),
+                    2_usize.pow(level),
                 )
             })
             .collect();
@@ -348,11 +348,11 @@ impl EarthState {
         let fov_intersections =
             calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
-        #[cfg(feature = "debug")]
-        log::warn!("tile bounds! {:#?}", fov_intersections.len());
+        // #[cfg(feature = "debug")]
+        // log::warn!("tile bounds! {:#?}", fov_intersections);
 
-        self.test_bounding_box(&fov_intersections, queue);
-        return;
+        // self.test_bounding_box(&fov_intersections, queue);
+        // return;
 
         let fetch = self.tiles_.get_intersection(1, &fov_intersections);
 
@@ -547,7 +547,7 @@ fn calculate_camera_earth_view_bounding_box(
 
     let (orth1, orth2) = cam_dir.any_orthonormal_pair();
     let fov = camera_projection.fovy;
-    let half_fov = fov / 2.0;
+    let half_fov = fov / 4.0;
 
     let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
 
@@ -580,7 +580,7 @@ fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
     } else {
         point.x.atan2(-point.y).to_degrees()
     };
-    let lat = (-point.z).clamp(-1., 1.).asin().to_degrees();
+    let lat = (point.z).clamp(-1., 1.).asin().to_degrees();
 
     coord! {x:lon,y:lat}
 }
@@ -616,8 +616,8 @@ struct Level {
 
 impl Level {
     pub fn new(bounds: Bounds, width: usize, height: usize) -> Self {
-        let step_x = bounds.height() / height as f32;
-        let step_y = bounds.width() / width as f32;
+        let step_x = 360. / width as f32;
+        let step_y = 180. / height as f32;
 
         Self {
             bounds,
@@ -654,13 +654,18 @@ impl Tiles {
         let mut visible = HashSet::new();
 
         for p in points {
-            visible.insert((z, (p.y / level.step_y) as u32, (p.x / level.step_x) as u32));
+            visible.insert((
+                z,
+                ((90. - p.y) / level.step_y).floor() as u32,
+                ((180. + p.x) / level.step_x).floor() as u32,
+            ));
         }
 
         #[cfg(feature = "debug")]
         {
-            log::warn!("Visible: {:#?}", visible.len());
-            log::warn!("Visible: {:#?}", visible);
+            // log::warn!("Points: {:#?}", points);
+            log::warn!("Visible len: {:#?}", visible.len());
+            // log::warn!("Visible: {:#?}", visible);
         }
         // for polygon in polygons {
         //     let bounds = polygon.bounding_rect().unwrap();
