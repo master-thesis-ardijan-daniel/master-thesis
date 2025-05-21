@@ -76,16 +76,13 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         let v = 1.-(lat - se_lat) / (nw_lat - se_lat);
 
 
-        // let scaled_u = u * f32(metadata.width)/256.;
-        // let scaled_v = v * f32(metadata.height)/256.;
-        // Scale u and v
-        // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
-        // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
-        //
+        let scaled_u = u * f32(metadata.width)/256.;
+        let scaled_v = v * f32(metadata.height)/256.;
+
         if (highest_z <= metadata.level) {
             found_sample = true;
             highest_z = metadata.level;
-            sample =textureSample(t_diffuse, s_diffuse, vec2<f32>(u,v ), layer);
+            sample =textureSample(t_diffuse, s_diffuse, vec2<f32>(scaled_u,scaled_v ), layer);
         };
     }
 
