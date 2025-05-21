@@ -38,7 +38,7 @@ struct TileMetadata {
     se_lon: f32,
     width: u32,
     height: u32,
-    pad_1: u32,
+    level: u32,
     pad_2: u32,
 }
 
@@ -54,6 +54,10 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let pos = normalize(in.pos);
     let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
     let lat = (asin(-pos.z) / PI)+0.5 ;
+
+    var highest_z = u32(0);
+    var found_sample = false;
+    var sample = vec4<f32>(); 
 
     for (var layer = 0; layer < 64 ; layer++){
         let metadata = metadata.tiles[layer];
@@ -77,7 +81,16 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         // Scale u and v
         // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
         // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
-        return textureSample(t_diffuse, s_diffuse, vec2<f32>(u,v ), layer);
+        //
+        if (highest_z <= metadata.level) {
+            found_sample = true;
+            highest_z = metadata.level;
+            sample =textureSample(t_diffuse, s_diffuse, vec2<f32>(u,v ), layer);
+        };
+    }
+
+    if found_sample{
+        return sample;
     }
 
     return vec4<f32>(0., lon, lat, 1.0);

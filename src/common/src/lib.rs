@@ -32,7 +32,7 @@ pub struct TileMetadata {
     pub se_lon: f32,
     pub width: u32,
     pub height: u32,
-    pub pad_1: u32,
+    pub level: u32,
     pub pad_2: u32,
 }
 
@@ -55,8 +55,8 @@ where
     }
 }
 
-impl<T> From<&TileResponse<T>> for TileMetadata {
-    fn from(tile: &TileResponse<T>) -> Self {
+impl<T> From<(&TileResponse<T>, u32)> for TileMetadata {
+    fn from((tile, level): (&TileResponse<T>, u32)) -> Self {
         #[cfg(feature = "debug")]
         log::warn!("tile bounds incoming {:#?}", tile.bounds);
         Self {
@@ -66,7 +66,7 @@ impl<T> From<&TileResponse<T>> for TileMetadata {
             se_lon: tile.bounds.max().x,
             width: tile.data[0].len() as u32,
             height: tile.data.len() as u32,
-            pad_1: 0,
+            level,
             pad_2: 0,
         }
     }

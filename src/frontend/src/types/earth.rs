@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::env::current_dir;
 
 use common::{Bounds, TileMetadata, TileResponse};
 use geo::{coord, Area, BoundingRect, Contains, Coord, Distance, Euclidean, Intersects, Rect};
@@ -71,12 +72,13 @@ impl EarthState {
                 continue;
             };
 
-            self.write_a_single_tile_to_buffer(tile, &slot, queue);
+            self.write_a_single_tile_to_buffer(id, tile, &slot, queue);
         }
     }
 
     pub fn write_a_single_tile_to_buffer(
         &mut self,
+        id: (u32, u32, u32),
         new_tile: TileResponse<[u8; 4]>,
         slot: &BufferSlot,
         queue: &Queue,
@@ -110,7 +112,7 @@ impl EarthState {
             },
         );
 
-        let metadata = TileMetadata::from(&new_tile);
+        let metadata = TileMetadata::from((&new_tile, id.0));
         // #[cfg(feature = "debug")]
         // {
         //     log::warn!(
@@ -334,7 +336,7 @@ impl EarthState {
                 ),
             };
 
-            self.write_a_single_tile_to_buffer(tile, &BufferSlot { start: i }, queue);
+            self.write_a_single_tile_to_buffer((0, 0, 0), tile, &BufferSlot { start: i }, queue);
             // #[cfg(feature = "debug")]
             // log::warn!("tile bounds! {:#?}", tile.bounds,);
         }
@@ -354,7 +356,9 @@ impl EarthState {
         // self.test_bounding_box(&fov_intersections, queue);
         // return;
 
-        let fetch = self.tiles_.get_intersection(3, &fov_intersections);
+        let fetch = self
+            .tiles_
+            .get_intersection(self.tiles_.current_level as u32, &fov_intersections);
 
         for f in fetch {
             // #[cfg(feature = "debug")]
@@ -593,6 +597,7 @@ fn is_vector_in_cone(vector: Vec3, cone_axis: Vec3, cone_angle: f32) -> bool {
 #[derive(Debug)]
 struct Tiles {
     levels: Vec<Level>,
+    pub current_level: usize,
 
     visible: HashSet<(u32, u32, u32)>,
     allocated: HashMap<(u32, u32, u32), BufferSlot>,
@@ -636,6 +641,7 @@ impl Tiles {
 
         Self {
             levels,
+            current_level: 0,
 
             visible: HashSet::new(),
             free,
@@ -645,7 +651,7 @@ impl Tiles {
     }
 
     pub fn get_intersection(&mut self, z: u32, points: &[Coord<f32>]) -> Vec<(u32, u32, u32)> {
-        let level = &self.levels[z as usize];
+        let level = &self.levels[self.current_level];
 
         let mut visible = HashSet::new();
 
@@ -657,8 +663,16 @@ impl Tiles {
             ));
         }
 
-        // #[cfg(feature = "debug")]
-        // log::warn!("n_visible: {}", visible.len());
+        if visible.len() < 3 {
+            self.current_level = (self.current_level + 1).min(self.levels.len().saturating_sub(1));
+        }
+
+        if visible.len() > 10 {
+            self.current_level = self.current_level.saturating_sub(1);
+        }
+
+        #[cfg(feature = "debug")]
+        log::warn!("level: {}", self.current_level);
 
         self.marked.retain(|tile| !visible.contains(tile));
         let not_visible_anymore = self.visible.difference(&visible);
