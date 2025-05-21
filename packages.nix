@@ -93,7 +93,7 @@ in
       );
 
       thesis-nextest = craneLib.cargoNextest (
-        commonArgs // {
+        native.args // {
           inherit (native) cargoArtifacts;
           cargoNextestExtraArgs = "--no-tests=pass";
           doCheck = true;
