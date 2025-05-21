@@ -240,20 +240,16 @@ where
 
                 let child_data = slice::<D>(&data, x_start, y_start, actual_width, actual_height);
 
+                let bounds_delta_w = parent.bounds.width() / D::CHILDREN_PER_AXIS as f32;
+                let bounds_delta_h = parent.bounds.height() / D::CHILDREN_PER_AXIS as f32;
                 let bounds = Rect::new(
                     Coord {
-                        x: parent.bounds.min().x
-                            + (j as f32 * parent.bounds.width() / D::CHILDREN_PER_AXIS as f32),
-                        y: parent.bounds.min().y
-                            + (i as f32 * parent.bounds.height() / D::CHILDREN_PER_AXIS as f32),
+                        x: parent.bounds.min().x + (j as f32 * bounds_delta_w),
+                        y: parent.bounds.max().y - (i as f32 * bounds_delta_h),
                     },
                     Coord {
-                        x: parent.bounds.min().x
-                            + ((j + 1) as f32 * parent.bounds.width()
-                                / D::CHILDREN_PER_AXIS as f32),
-                        y: parent.bounds.min().y
-                            + ((i + 1) as f32 * parent.bounds.height()
-                                / D::CHILDREN_PER_AXIS as f32),
+                        x: parent.bounds.min().x + ((j + 1) as f32 * bounds_delta_w),
+                        y: parent.bounds.max().y - ((i + 1) as f32 * bounds_delta_h),
                     },
                 );
 

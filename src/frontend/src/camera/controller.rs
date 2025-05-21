@@ -23,8 +23,8 @@ pub struct CameraController {
     max: f32,
     size: f32,
 
-    projection: Projection,
-    camera: Camera,
+    pub projection: Projection,
+    pub camera: Camera,
 }
 
 impl CameraController {

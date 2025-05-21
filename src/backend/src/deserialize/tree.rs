@@ -81,6 +81,42 @@ where
 
         inner::<_, D::AggregateType>(level, 0, &Pointer::default(), area, &reader).unwrap()
     }
+
+    pub fn get_tile(&self, x: usize, y: usize, z: usize) -> Option<TileRefResponse<'_, D::Type>>
+    where
+        D::Type: Pod,
+        D::AggregateType: Pod,
+    {
+        let reader = Reader::new(&self.data);
+
+        let mut current = reader.read::<TileNode<D::Type>>();
+
+        let max = D::CHILDREN_PER_AXIS.pow(z as u32);
+
+        if y >= max || x >= max {
+            return None;
+        }
+
+        for level in 1..=z {
+            let bit_position = z - level;
+
+            let row = (y >> bit_position) & 1;
+            let col = (x >> bit_position) & 1;
+
+            if let Some(child) = current.children.get(row).and_then(|row| row.get(col)) {
+                current = reader.load(child);
+            } else {
+                return None;
+            }
+        }
+
+        let data = reader.read::<TileData<D::Type, D::AggregateType>>();
+
+        Some(TileRefResponse {
+            data: data.tile.unwrap(),
+            bounds: current.bounds,
+        })
+    }
 }
 
 #[repr(transparent)]

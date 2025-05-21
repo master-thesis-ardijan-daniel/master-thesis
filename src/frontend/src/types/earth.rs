@@ -1,6 +1,8 @@
-use common::{TileMetadata, TileResponse};
-use geo::{coord, Rect};
-// use image::math::Rect;
+use std::collections::HashMap;
+
+use common::{Bounds, TileMetadata, TileResponse};
+use geo::{coord, Coord};
+use glam::{Quat, Vec3, Vec3Swizzles};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -11,14 +13,18 @@ use wgpu::{
 };
 use winit::event_loop::EventLoopProxy;
 
-use crate::app::CustomEvent;
+use crate::{
+    app::CustomEvent,
+    camera::{Camera, Projection},
+    utils::buffer::{BufferAllocator, BufferSlot, Level},
+};
 
-use super::{Icosphere, Point};
+use super::Icosphere;
+
+type Point = Vec3;
 
 const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
-
-// const TEXTURE_ATLAS_SIZE: u32 = 2048;
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -38,69 +44,37 @@ pub struct EarthState {
     num_indices: u32,
     texture_buffer: wgpu::Texture,
     texture_bind_group: wgpu::BindGroup,
-    pub tiles: Vec<TileResponse<[u8; 4]>>,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     tile_metadata_buffer: Buffer,
     eventloop: EventLoopProxy<CustomEvent>,
-    finished_creation: bool,
+
+    buffer_allocator: BufferAllocator,
+    tile_map: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
 }
 
 impl EarthState {
-    // The shader code needs to loop over each of the tiles in order to check if any of them have anything it should sample
-    // if so, we sample from the respective tile
-    // need to make sure we sample withing width and height
+    pub fn insert_tile(&mut self, id: (u32, u32, u32), data: TileResponse<[u8; 4]>) {
+        self.tile_map.insert(id, data);
+    }
 
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
-        let mut texture_data: Vec<u8> =
-            Vec::with_capacity(self.tiles.len() * (TEXTURE_WIDTH * TEXTURE_HEIGHT * 4) as usize);
+        let tiles = std::mem::take(&mut self.tile_map);
 
-        for tile in &self.tiles {
-            texture_data.extend(
-                tile.get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
-                    .into_iter()
-                    .flatten()
-                    .flatten(),
-            );
+        for (id, tile) in tiles.into_iter() {
+            let Some(&slot) = self.buffer_allocator.slot(&id) else {
+                continue;
+            };
+
+            self.write_a_single_tile_to_buffer(id, tile, slot, queue);
         }
-
-        let tile_metadata = self
-            .tiles
-            .iter()
-            .map(TileMetadata::from)
-            .collect::<Vec<_>>();
-
-        queue.write_buffer(
-            &self.tile_metadata_buffer,
-            0,
-            bytemuck::cast_slice(&tile_metadata),
-        );
-
-        queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &self.texture_buffer,
-                mip_level: 0,
-                origin: Origin3d { x: 0, y: 0, z: 0 },
-                aspect: TextureAspect::All,
-            },
-            &texture_data,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(TEXTURE_WIDTH * 4),
-                rows_per_image: Some(TEXTURE_HEIGHT),
-            },
-            Extent3d {
-                width: TEXTURE_WIDTH,
-                height: TEXTURE_HEIGHT,
-                depth_or_array_layers: self.tiles.len() as u32,
-            },
-        );
     }
 
     pub fn write_a_single_tile_to_buffer(
         &mut self,
+        id: (u32, u32, u32),
         new_tile: TileResponse<[u8; 4]>,
-        layer: u32,
-        queue: Queue,
+        slot: BufferSlot,
+        queue: &Queue,
     ) {
         queue.write_texture(
             TexelCopyTextureInfo {
@@ -109,7 +83,7 @@ impl EarthState {
                 origin: Origin3d {
                     x: 0,
                     y: 0,
-                    z: layer,
+                    z: *slot as u32,
                 },
                 aspect: TextureAspect::All,
             },
@@ -127,37 +101,17 @@ impl EarthState {
             Extent3d {
                 width: TEXTURE_WIDTH,
                 height: TEXTURE_HEIGHT,
-                depth_or_array_layers: 0,
+                depth_or_array_layers: 1,
             },
         );
-    }
 
-    pub fn fetch_tiles(&self, url: String) {
-        // #[cfg(target_arch = "wasm32")]
+        let metadata = TileMetadata::from((&new_tile, id.0));
 
-        {
-            let proxy = self.eventloop.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let raw_data = gloo_net::http::Request::get(&url)
-                    .query([("level", "1")])
-                    .send()
-                    .await
-                    .expect("Error, request failed! ");
-
-                #[cfg(feature = "debug")]
-                log::warn!("Tiles requested");
-
-                let tiles = raw_data
-                    .json()
-                    .await
-                    .expect("Unable to deserialize response, from tile request");
-                proxy
-                    .send_event(CustomEvent::HttpResponse(
-                        crate::app::CustomResponseType::StartupTileResponse(tiles),
-                    ))
-                    .unwrap();
-            });
-        }
+        queue.write_buffer(
+            &self.tile_metadata_buffer,
+            ({ *slot } * size_of::<TileMetadata>()) as u64,
+            bytemuck::bytes_of(&metadata),
+        );
     }
 
     pub fn create(device: &Device, eventloop: EventLoopProxy<CustomEvent>) -> Self {
@@ -166,14 +120,14 @@ impl EarthState {
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64 * 32,
+            size: size_of::<TileMetadata>() as u64 * 64,
             mapped_at_creation: false,
         });
 
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 32,
+            depth_or_array_layers: 64,
         };
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),
@@ -265,19 +219,26 @@ impl EarthState {
             ],
         });
 
-        let tiles = vec![TileResponse {
-            data: vec![vec![[125u8; 4]; 256]; 256],
-            bounds: Rect::new(coord! { x: -180., y:90.}, coord! { x: 180., y:-90.}),
-        }];
+        let levels = (0..=4)
+            .map(|level| {
+                Level::new(
+                    Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                    2_usize.pow(level),
+                    2_usize.pow(level),
+                )
+            })
+            .collect();
 
         Self {
+            tile_map: HashMap::new(),
+            buffer_allocator: BufferAllocator::new(levels, 64),
+
             eventloop,
             vertex_buffer,
             index_buffer,
             previous_output_as_lines: false,
             current_output_as_lines: false,
             update_tile_buffer: true,
-            finished_creation: false,
             texture_bind_group_layout,
 
             icosphere,
@@ -288,7 +249,6 @@ impl EarthState {
             texture_buffer,
             texture_bind_group,
             tile_metadata_buffer,
-            tiles,
         }
     }
 
@@ -307,17 +267,44 @@ impl EarthState {
     pub fn set_subdivision_level(&mut self, level: usize) {
         self.current_subdivision_level = level;
     }
+
     pub fn set_output_to_lines(&mut self, output_as_lines: bool) {
         self.current_output_as_lines = output_as_lines;
     }
 
-    pub fn update(&mut self, queue: &Queue, device: &Device) {
-        if !self.finished_creation {
-            self.finished_creation = true;
-            // the response handler will set self.update_tiles_buffer to true;
-            self.fetch_tiles("/tiles".to_string());
-        }
+    pub fn update_visible_tiles(&mut self, projection: &Projection, camera: &Camera) {
+        let fov_intersections =
+            calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
 
+        let allocations = self.buffer_allocator.allocate(
+            self.buffer_allocator.current_level as u32,
+            &fov_intersections,
+        );
+
+        for tile_id in allocations {
+            let proxy = self.eventloop.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let tile = gloo_net::http::Request::get(&format!(
+                    "/tile/{}/{}/{}",
+                    tile_id.0, tile_id.1, tile_id.2
+                ))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+
+                proxy
+                    .send_event(CustomEvent::HttpResponse(
+                        crate::app::CustomResponseType::TileResponse(tile, tile_id),
+                    ))
+                    .unwrap();
+            });
+        }
+    }
+
+    pub fn update(&mut self, queue: &Queue, device: &Device) {
         if self.update_tile_buffer {
             self.rewrite_tiles(queue);
             self.update_tile_buffer = false;
@@ -371,13 +358,30 @@ impl EarthState {
 }
 
 fn vert_transform(mut v: Point) -> Point {
+    const PI: f32 = std::f32::consts::PI;
+    pub fn to_lat_lon_range(point: Point) -> (f32, f32, f32) {
+        let lenxy = point.xy().length();
+        let range = point.length();
+
+        if lenxy < 1.0e-10 {
+            if point.z > 0. {
+                return (PI / 2., 0.0, range);
+            }
+            (-(PI / 2.), 0.0, range)
+        } else {
+            let lat = point.z.atan2(lenxy);
+            let lon = point.y.atan2(point.x);
+            (lat, lon, range)
+        }
+    }
+
     v /= v.length();
     // const EARTH_RADIUS: 6378.137;
     const EARTH_RADIUS: f32 = 1.;
     // const FLATTENING: f32 = 1. / 298.257;
     const FLATTENING: f32 = 0.;
     // // get polar from cartesian
-    let (lat, _lon, _rng) = v.to_lat_lon_range();
+    let (lat, _lon, _rng) = to_lat_lon_range(v);
     // // get ellipsoid radius from polar
     let a = EARTH_RADIUS;
     let f = FLATTENING;
@@ -393,4 +397,110 @@ fn vert_transform(mut v: Point) -> Point {
     //     log::warn!("r {:?}", r);
     // }
     v * r
+}
+
+fn closest_intersection_or_surface_point(
+    p: Vec3, // point on ray
+    v: Vec3, // direction (doesn't have to be normalized)
+    c: Vec3, // sphere center
+    r: f32,  // sphere radius
+) -> Vec3 {
+    let oc = p - c;
+    let a = v.dot(v);
+    let b = 2.0 * v.dot(oc);
+    let c_term = oc.dot(oc) - r * r;
+    let discriminant = b * b - 4.0 * a * c_term;
+
+    if discriminant >= 0.0 {
+        // Ray hits the sphere
+        let sqrt_disc = discriminant.sqrt();
+        let t1 = (-b - sqrt_disc) / (2.0 * a);
+        let t2 = (-b + sqrt_disc) / (2.0 * a);
+
+        // Only consider points in the direction of the ray (t >= 0)
+        let t_closest = if t1 >= 0.0 {
+            t1
+        } else if t2 >= 0.0 {
+            t2
+        } else {
+            // Both behind the ray origin
+            return closest_point_on_surface(p, v, c, r);
+        };
+
+        p + t_closest * v
+    } else {
+        // No intersection; find closest point on sphere surface
+        closest_point_on_surface(p, v, c, r)
+    }
+}
+
+fn closest_point_on_surface(
+    p: Vec3, // ray origin
+    v: Vec3, // ray direction
+    c: Vec3, // sphere center
+    r: f32,  // radius
+) -> Vec3 {
+    // Closest point on ray to sphere center
+    let v_norm = v.normalize();
+    let to_center = c - p;
+    let t = to_center.dot(v_norm); // projected distance along ray
+    let closest_point = p + t * v_norm;
+
+    // Direction from sphere center to that point
+    let direction = (closest_point - c).normalize();
+
+    // Closest surface point in that direction
+    c + r * direction
+}
+
+fn calculate_camera_earth_view_bounding_box(
+    camera_projection: &Projection,
+    camera: &Camera,
+    earth_position: Point,
+) -> Vec<Coord<f32>> {
+    const N_RAYS: usize = 6;
+    let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
+    let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
+    let cam_dir = -cam_pos.normalize();
+
+    let (orth1, orth2) = cam_dir.any_orthonormal_pair();
+    let fov = camera_projection.fovy;
+    let half_fov = fov / 2.0;
+
+    let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
+
+    let angle_step = fov / (N_RAYS - 1) as f32;
+    let mut angle_offsets = [0.0f32; N_RAYS];
+
+    for (i, entry) in angle_offsets.iter_mut().enumerate().take(N_RAYS) {
+        let mut angle_offset = -half_fov + i as f32 * angle_step;
+
+        std::mem::swap(entry, &mut angle_offset);
+    }
+
+    for &angle_v in &angle_offsets {
+        let qv = Quat::from_axis_angle(orth2, angle_v);
+        for &angle_u in &angle_offsets {
+            let qu = Quat::from_axis_angle(orth1, angle_u);
+            let ray_dir = (qu * qv * cam_dir).normalize();
+
+            let point =
+                closest_intersection_or_surface_point(cam_pos, ray_dir, earth_position, 1.0);
+            surface_points.push(convert_point_on_surface_to_lat_lon(point));
+        }
+    }
+
+    surface_points
+}
+
+fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
+    let point = point.normalize();
+    let lon = if point.x == 0.0 && point.y == 0.0 {
+        0.0
+    } else {
+        (-point.x.atan2(point.y)).to_degrees()
+    };
+    let lat = (-point.z).clamp(-1., 1.).asin().to_degrees();
+
+    coord! {x:lon,y:lat}
 }

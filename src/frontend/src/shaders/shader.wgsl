@@ -28,7 +28,7 @@ fn vs_main(
 }
 
 struct Metadata {
-    tiles: array<TileMetadata, 32>,
+    tiles: array<TileMetadata, 64>,
 }
 
 struct TileMetadata {
@@ -38,7 +38,7 @@ struct TileMetadata {
     se_lon: f32,
     width: u32,
     height: u32,
-    pad_1: u32,
+    level: u32,
     pad_2: u32,
 }
 
@@ -52,9 +52,14 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     const PI: f32 = 3.14159265358979323846264338327950288;
 
     let pos = normalize(in.pos);
-    let lon = (atan2(pos.x, -pos.y) / (2.0 * PI)) + 0.5;
-    let lat = (asin(pos.z) / PI) + 0.5;
-    for (var layer = 0; layer<32 ; layer++){
+    let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
+    let lat = (asin(-pos.z) / PI)+0.5 ;
+
+    var highest_z = u32(0);
+    var found_sample = false;
+    var sample = vec4<f32>(); 
+
+    for (var layer = 0; layer < 64 ; layer++){
         let metadata = metadata.tiles[layer];
 
         let nw_lat = (metadata.nw_lat + 90.0) / 180.0;
@@ -64,24 +69,34 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 
         if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
             continue;
-            // return vec4<f32>(0.0, 0.0, lat, 1.0);
+            // return vec4<f32>(lon, lat, 0, 1.0);
         }
 
         let u = (lon - nw_lon) / (se_lon - nw_lon);
-        let v = (lat - se_lat) / ( nw_lat - se_lat);
+        let v = 1.-(lat - se_lat) / (nw_lat - se_lat);
 
 
-        let scaled_u = u * f32(metadata.width)/256.;
-        let scaled_v = v * f32(metadata.height)/256.;
+        // let scaled_u = u * f32(metadata.width)/256.;
+        // let scaled_v = v * f32(metadata.height)/256.;
         // Scale u and v
         // return textureSample(t_diffuse, s_diffuse, vec2<f32>(0., 0.), layer);
-        return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
+        // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), layer);
+        //
+        if (highest_z <= metadata.level) {
+            found_sample = true;
+            highest_z = metadata.level;
+            sample =textureSample(t_diffuse, s_diffuse, vec2<f32>(u,v ), layer);
+        };
     }
 
+    if found_sample{
+        return sample;
+    }
+
+    return vec4<f32>(0., lon, lat, 1.0);
 
 
-    // return vec4<f32>(0.0, 0.0, lat, 1.0);
-    discard;
+    // discard;
 
     // instead of discard, write to buffer that this coordinate has no color.
 }

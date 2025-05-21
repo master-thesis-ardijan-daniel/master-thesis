@@ -24,7 +24,7 @@ pub struct TileRefResponse<'a, T> {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TileMetadata {
     pub nw_lat: f32,
     pub nw_lon: f32,
@@ -32,7 +32,7 @@ pub struct TileMetadata {
     pub se_lon: f32,
     pub width: u32,
     pub height: u32,
-    pub pad_1: u32,
+    pub level: u32,
     pub pad_2: u32,
 }
 
@@ -55,8 +55,8 @@ where
     }
 }
 
-impl<T> From<&TileResponse<T>> for TileMetadata {
-    fn from(tile: &TileResponse<T>) -> Self {
+impl<T> From<(&TileResponse<T>, u32)> for TileMetadata {
+    fn from((tile, level): (&TileResponse<T>, u32)) -> Self {
         Self {
             nw_lat: tile.bounds.max().y,
             nw_lon: tile.bounds.min().x,
@@ -64,7 +64,7 @@ impl<T> From<&TileResponse<T>> for TileMetadata {
             se_lon: tile.bounds.max().x,
             width: tile.data[0].len() as u32,
             height: tile.data.len() as u32,
-            pad_1: 0,
+            level,
             pad_2: 0,
         }
     }
