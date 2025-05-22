@@ -120,14 +120,14 @@ impl EarthState {
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64 * 64,
+            size: size_of::<TileMetadata>() as u64 * 256,
             mapped_at_creation: false,
         });
 
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 64,
+            depth_or_array_layers: 256,
         };
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),
@@ -231,7 +231,7 @@ impl EarthState {
 
         Self {
             tile_map: HashMap::new(),
-            buffer_allocator: BufferAllocator::new(levels, 64),
+            buffer_allocator: BufferAllocator::new(levels, 256),
 
             eventloop,
             vertex_buffer,
