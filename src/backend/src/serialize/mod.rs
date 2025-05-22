@@ -66,6 +66,15 @@ where
         Ok(())
     }
 
+    pub fn align_to(&mut self, alignment: usize) -> Result<()> {
+        let padding = (alignment - (self.position % alignment)) % alignment;
+        if padding > 0 {
+            self.inner.write_all(&vec![0u8; padding])?;
+            self.position += padding;
+        }
+        Ok(())
+    }
+
     pub fn padding<T>(&self) -> usize {
         let alignment = std::mem::align_of::<T>();
         let remainder = self.position % alignment;
@@ -97,6 +106,8 @@ where
             let mut sink = writer.with(std::io::sink());
 
             while let Some(node) = queue.pop_front() {
+                sink.align_to(8)?;
+
                 pointers.insert(node as *const _ as usize, sink.position);
 
                 node.bounds.serialize(&mut sink)?;
@@ -121,6 +132,8 @@ where
         queue.push_back(self);
 
         while let Some(node) = queue.pop_front() {
+            writer.align_to(8)?;
+
             node.bounds.serialize(writer)?;
 
             let children = node

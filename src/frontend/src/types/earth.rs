@@ -219,7 +219,7 @@ impl EarthState {
             ],
         });
 
-        let levels = (0..=6)
+        let levels = (0..=7)
             .map(|level| {
                 Level::new(
                     Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
