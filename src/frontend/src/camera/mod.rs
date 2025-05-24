@@ -93,7 +93,7 @@ impl Camera {
         let axis = axis.normalize();
 
         let angle = {
-            let distance = Vec2::distance(p1, p2) / (2. * R);
+            let distance = Vec3::distance(v1, v2) / (2. * R);
 
             2. * distance.clamp(-1., 1.).asin()
         };
