@@ -45,7 +45,7 @@ impl Camera {
             current_orientation: Quat::IDENTITY,
 
             angular_velocity: Quat::IDENTITY,
-            friction: 5.,
+            friction: 3.,
         }
     }
 
