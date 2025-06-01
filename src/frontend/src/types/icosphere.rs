@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use glam::Vec3;
+
 use super::HashablePoint;
 
 pub const PHI: f32 = 1.618_034_f32;
@@ -30,18 +32,18 @@ impl Icosphere {
         let mut faces: [[u32; 3]; 20] = [[0, 0, 0]; 20];
 
         let vertecies: [Vertex; 12] = [
-            vertex_transformation_function([-1., PHI, 0.].into()),
-            vertex_transformation_function([1., PHI, 0.].into()),
-            vertex_transformation_function([-1., -PHI, 0.].into()),
-            vertex_transformation_function([1., -PHI, 0.].into()),
-            vertex_transformation_function([0., -1., PHI].into()),
-            vertex_transformation_function([0., 1., PHI].into()),
-            vertex_transformation_function([0., -1., -PHI].into()),
-            vertex_transformation_function([0., 1., -PHI].into()),
-            vertex_transformation_function([PHI, 0., -1.].into()),
-            vertex_transformation_function([PHI, 0., 1.].into()),
-            vertex_transformation_function([-PHI, 0., -1.].into()),
-            vertex_transformation_function([-PHI, 0., 1.].into()),
+            vertex_transformation_function(Vec3::new(-1., PHI, 0.).normalize()),
+            vertex_transformation_function(Vec3::new(1., PHI, 0.).normalize()),
+            vertex_transformation_function(Vec3::new(-1., -PHI, 0.).normalize()),
+            vertex_transformation_function(Vec3::new(1., -PHI, 0.).normalize()),
+            vertex_transformation_function(Vec3::new(0., -1., PHI).normalize()),
+            vertex_transformation_function(Vec3::new(0., 1., PHI).normalize()),
+            vertex_transformation_function(Vec3::new(0., -1., -PHI).normalize()),
+            vertex_transformation_function(Vec3::new(0., 1., -PHI).normalize()),
+            vertex_transformation_function(Vec3::new(PHI, 0., -1.).normalize()),
+            vertex_transformation_function(Vec3::new(PHI, 0., 1.).normalize()),
+            vertex_transformation_function(Vec3::new(-PHI, 0., -1.).normalize()),
+            vertex_transformation_function(Vec3::new(-PHI, 0., 1.).normalize()),
         ];
 
         faces[0] = [11, 0, 5];
@@ -150,8 +152,8 @@ impl Icosphere {
         let mut create_new_vertex_on_edge_center = |i_a: u32, i_b: u32| -> u32 {
             // Edges are independent of vertex order,
             // thus we sort the vertecies in order to use it as key
-            let a = self.vertecies[i_a as usize];
-            let b = self.vertecies[i_b as usize];
+            let a = self.vertecies[i_a as usize].normalize();
+            let b = self.vertecies[i_b as usize].normalize();
 
             let key = sort_edge(a, b);
             if let Some(i) = edges_with_odd_verts_cache.get(&key) {

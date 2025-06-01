@@ -6,6 +6,6 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde = {version="*", features= ["derive"]}
+serde.workspace = true
 geo.workspace = true
 bytemuck.workspace = true

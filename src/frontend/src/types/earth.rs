@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use common::{Bounds, TileMetadata, TileResponse};
-use geo::{coord, Coord};
-use glam::{Quat, Vec3, Vec3Swizzles};
+use geo::{coord, Coord, Rect};
+use glam::{vec3, Quat, Vec3, Vec3Swizzles};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -115,7 +115,7 @@ impl EarthState {
     }
 
     pub fn create(device: &Device, eventloop: EventLoopProxy<CustomEvent>) -> Self {
-        let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, vert_transform);
+        let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, icosahedron_to_wgs84);
 
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
@@ -271,17 +271,45 @@ impl EarthState {
     pub fn set_output_to_lines(&mut self, output_as_lines: bool) {
         self.current_output_as_lines = output_as_lines;
     }
+    pub fn test_bounding_box(&mut self, polygons: &[Coord<f32>], queue: &Queue) {
+        for (i, polygon) in polygons.iter().enumerate() {
+            let texture = vec![vec![[255, 0, 0, 255]; 256]; 256];
 
-    pub fn update_visible_tiles(&mut self, projection: &Projection, camera: &Camera) {
+            let tile = TileResponse {
+                data: texture,
+
+                bounds: Rect::new(
+                    coord! {x: polygon.x,y:polygon.y},
+                    coord! {x: polygon.x+0.4,y:polygon.y+0.4},
+                ),
+            };
+
+            self.write_a_single_tile_to_buffer((0, 0, 0), tile, BufferSlot(i), queue);
+            // #[cfg(feature = "debug")]
+            // log::warn!("tile bounds! {:#?}", tile.bounds,);
+        }
+
+        self.update_tile_buffer = true;
+
+        self.tile_map = HashMap::new();
+    }
+    pub fn update_visible_tiles(
+        &mut self,
+        projection: &Projection,
+        camera: &Camera,
+        queue: &Queue,
+    ) {
         let fov_intersections =
-            calculate_camera_earth_view_bounding_box(projection, camera, Point::ZERO);
+            calculate_camera_earth_view_bounding_box(projection, camera, Vec3::ZERO);
 
-        let allocations = self.buffer_allocator.allocate(
+        // return self.test_bounding_box(&fov_intersections, queue);
+
+        let new_allocations = self.buffer_allocator.allocate(
             self.buffer_allocator.current_level as u32,
             &fov_intersections,
         );
 
-        for tile_id in allocations {
+        for tile_id in new_allocations {
             let proxy = self.eventloop.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let tile = gloo_net::http::Request::get(&format!(
@@ -357,45 +385,19 @@ impl EarthState {
     }
 }
 
-fn vert_transform(mut v: Point) -> Point {
-    const PI: f32 = std::f32::consts::PI;
-    pub fn to_lat_lon_range(point: Point) -> (f32, f32, f32) {
-        let lenxy = point.xy().length();
-        let range = point.length();
-
-        if lenxy < 1.0e-10 {
-            if point.z > 0. {
-                return (PI / 2., 0.0, range);
-            }
-            (-(PI / 2.), 0.0, range)
-        } else {
-            let lat = point.z.atan2(lenxy);
-            let lon = point.y.atan2(point.x);
-            (lat, lon, range)
-        }
-    }
-
-    v /= v.length();
-    // const EARTH_RADIUS: 6378.137;
+fn icosahedron_to_wgs84(v: Point) -> Point {
+    let v = v.normalize();
     const EARTH_RADIUS: f32 = 1.;
-    // const FLATTENING: f32 = 1. / 298.257;
-    const FLATTENING: f32 = 0.;
-    // // get polar from cartesian
-    let (lat, _lon, _rng) = to_lat_lon_range(v);
-    // // get ellipsoid radius from polar
-    let a = EARTH_RADIUS;
-    let f = FLATTENING;
-    let b = a * (1.0 - f);
-    let sa = a * lat.sin();
-    let cb = b * lat.cos();
-    let r = a * b / (sa.powi(2) + cb.powi(2)).sqrt();
-    // #[cfg(feature = "debug")]
-    // {
-    //     log::warn!("lat {:?}", lat * 180. / PI);
-    //     log::warn!("lon {:?}", lon * 180. / PI);
-    //     log::warn!("v {:?}", v);
-    //     log::warn!("r {:?}", r);
-    // }
+    const FLATTENING: f32 = 1. / 298.257;
+    // const FLATTENING: f32 = 0.;
+
+    let lat = convert_point_on_surface_to_lat_lon(v).y.to_radians();
+
+    let flattening_factor = EARTH_RADIUS * (1.0 - FLATTENING);
+    let lat_strech_axis_1 = EARTH_RADIUS * lat.sin();
+    let lat_stech_axis_2 = flattening_factor * lat.cos();
+    let r = EARTH_RADIUS * flattening_factor
+        / (lat_strech_axis_1.powi(2) + lat_stech_axis_2.powi(2)).sqrt();
     v * r
 }
 
@@ -434,6 +436,7 @@ fn closest_intersection_or_surface_point(
     }
 }
 
+#[inline(always)]
 fn closest_point_on_surface(
     p: Vec3, // ray origin
     v: Vec3, // ray direction
