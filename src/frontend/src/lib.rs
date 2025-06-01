@@ -46,7 +46,7 @@ pub async fn run() {
     let proxy_event_loop = event_loop.create_proxy();
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
-    let app = App::new(proxy_event_loop);
+    let app = App::_new(proxy_event_loop);
 
     #[cfg(feature = "debug")]
     init_debug();
