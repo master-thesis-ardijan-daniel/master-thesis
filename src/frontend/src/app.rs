@@ -159,7 +159,6 @@ impl ApplicationHandler<CustomEvent> for App {
             ) => {
                 state.earth_state.update_tile_buffer = true;
                 state.earth_state.insert_tile(id, tile);
-                state.update();
                 state.window.request_redraw();
             }
             _ => {}

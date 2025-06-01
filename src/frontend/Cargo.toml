@@ -38,7 +38,7 @@ image="0.25"
 common = { path="../common" }
 # serde.workspace = true
 gloo-net = { version="0.6.0" }
-
+bincode.workspace = true
 env_logger = { version="0.11.6", optional = true }
 log = { version="0.4.25", optional = true }
 console_error_panic_hook = { version="0.1.7", optional = true }

@@ -1,6 +1,7 @@
 use axum::{
+    body::{Body, HttpBody},
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue},
+    http::{HeaderMap, HeaderValue, Response},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -9,7 +10,7 @@ use backend::{deserialize::GeoTree, Bounds, Dataset};
 use bytemuck::Pod;
 use earth_map::EarthmapDataset;
 use geo::Coord;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
@@ -127,12 +128,14 @@ async fn get_tile(
     Path(TileQuery { x, y, z }): Path<TileQuery>,
     State(state): State<BackendState>,
 ) -> impl IntoResponse {
-    let mut headers = HeaderMap::new();
+    let data: Vec<u8> =
+        bincode::serialize(&state.earth_map_tree.get_tile(x, y, z).unwrap()).unwrap();
 
-    headers.insert(
-        "Cache-Control",
-        HeaderValue::from_static("public, max-age=31536000, immutable"),
-    );
-
-    (headers, Json(state.earth_map_tree.get_tile(x, y, z))).into_response()
+    Response::builder()
+        .header(
+            "Cache-Control",
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        )
+        .body(Body::from(data))
+        .unwrap()
 }

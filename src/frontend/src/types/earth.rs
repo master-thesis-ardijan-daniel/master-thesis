@@ -309,18 +309,21 @@ impl EarthState {
             &fov_intersections,
         );
 
-        for tile_id in new_allocations {
-            let proxy = self.eventloop.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let tile = gloo_net::http::Request::get(&format!(
-                    "/tile/{}/{}/{}",
-                    tile_id.0, tile_id.1, tile_id.2
-                ))
-                .send()
-                .await
-                .unwrap()
-                .json()
-                .await
+        let proxy = self.eventloop.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            for tile_id in new_allocations {
+                let tile: TileResponse<[u8; 4]> = bincode::deserialize(
+                    &gloo_net::http::Request::get(&format!(
+                        "/tile/{}/{}/{}",
+                        tile_id.0, tile_id.1, tile_id.2
+                    ))
+                    .send()
+                    .await
+                    .unwrap()
+                    .binary()
+                    .await
+                    .unwrap(),
+                )
                 .unwrap();
 
                 proxy
@@ -328,8 +331,8 @@ impl EarthState {
                         crate::app::CustomResponseType::TileResponse(tile, tile_id),
                     ))
                     .unwrap();
-            });
-        }
+            }
+        });
     }
 
     pub fn update(&mut self, queue: &Queue, device: &Device) {
