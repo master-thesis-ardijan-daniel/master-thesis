@@ -30,7 +30,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(proxy: EventLoopProxy<CustomEvent>) -> Self {
+    pub fn _new(proxy: EventLoopProxy<CustomEvent>) -> Self {
         Self {
             state: None,
             perf_metrics: PerformanceMetrics::new(),

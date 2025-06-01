@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use common::{Bounds, TileMetadata, TileResponse};
 use geo::{coord, Coord, Rect};
-use glam::{vec3, Quat, Vec3, Vec3Swizzles};
+use glam::{Quat, Vec3};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -297,7 +297,7 @@ impl EarthState {
         &mut self,
         projection: &Projection,
         camera: &Camera,
-        queue: &Queue,
+        _queue: &Queue,
     ) {
         let fov_intersections =
             calculate_camera_earth_view_bounding_box(projection, camera, Vec3::ZERO);

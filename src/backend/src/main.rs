@@ -1,7 +1,7 @@
 use axum::{
-    body::{Body, HttpBody},
+    body::Body,
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, Response},
+    http::{HeaderValue, Response},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -10,7 +10,7 @@ use backend::{deserialize::GeoTree, Bounds, Dataset};
 use bytemuck::Pod;
 use earth_map::EarthmapDataset;
 use geo::Coord;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
