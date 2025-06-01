@@ -16,3 +16,4 @@ name = "thesis"
 [workspace.dependencies]
 bytemuck = { version = "1.21.0", features = ["derive"] }
 geo = { version = "*", features = ["use-serde"] }
+serde = {version="*", features= ["derive"]}
