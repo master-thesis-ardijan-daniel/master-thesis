@@ -19,12 +19,13 @@ use crate::{
     utils::buffer::{BufferAllocator, BufferSlot, Level},
 };
 
-use super::Icosphere;
+use super::{Icosphere, QueryPoi};
 
 type Point = Vec3;
 
 const TEXTURE_HEIGHT: u32 = 256;
 const TEXTURE_WIDTH: u32 = TEXTURE_HEIGHT;
+const BUFFER_SIZE: u32 = 256;
 
 #[derive(Debug)]
 pub struct EarthState {
@@ -50,6 +51,7 @@ pub struct EarthState {
 
     buffer_allocator: BufferAllocator,
     tile_map: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
+    pub query_poi: QueryPoi,
 }
 
 impl EarthState {
@@ -120,14 +122,14 @@ impl EarthState {
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            size: size_of::<TileMetadata>() as u64 * 256,
+            size: size_of::<TileMetadata>() as u64 * BUFFER_SIZE as u64,
             mapped_at_creation: false,
         });
 
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
-            depth_or_array_layers: 256,
+            depth_or_array_layers: BUFFER_SIZE,
         };
         let texture_buffer = device.create_texture(&TextureDescriptor {
             label: Some("earth_texture_buffer"),
@@ -231,8 +233,7 @@ impl EarthState {
 
         Self {
             tile_map: HashMap::new(),
-            buffer_allocator: BufferAllocator::new(levels, 256),
-
+            buffer_allocator: BufferAllocator::new(levels, BUFFER_SIZE as usize),
             eventloop,
             vertex_buffer,
             index_buffer,
@@ -249,6 +250,7 @@ impl EarthState {
             texture_buffer,
             texture_bind_group,
             tile_metadata_buffer,
+            query_poi: QueryPoi::new(&device),
         }
     }
 

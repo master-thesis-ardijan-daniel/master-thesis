@@ -24,7 +24,7 @@ pub struct State {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: Arc<Window>,
-    pub texture_pipeline: wgpu::RenderPipeline,
+    pub texture_pipeline_globe: wgpu::RenderPipeline,
     pub wireframe_pipeline: wgpu::RenderPipeline,
     pub render_wireframe: bool,
 
@@ -107,65 +107,74 @@ impl State {
         let earth_state = EarthState::create(&device, eventloop.clone());
         let depth_texture = DepthTexture::create(&device, &config);
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Main Pipeline Layout"),
-            bind_group_layouts: &[
-                &camera_state.bind_group_layout,
-                &earth_state.texture_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
+        let globe_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Main Pipeline Layout"),
+                bind_group_layouts: &[
+                    &camera_state.bind_group_layout,
+                    &earth_state.texture_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
 
-        let texture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[EarthState::descriptor()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(FragmentState {
-                module: &shader,
-                entry_point: Some("fs_tiles"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE,
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DepthTexture::DEPTH_TEXTURE_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
+        let query_poi_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Query POI Pipeline Layout"),
+                bind_group_layouts: &[&camera_state.bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let texture_pipeline_globe =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&globe_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[EarthState::descriptor()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_tiles"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent::REPLACE,
+                            alpha: wgpu::BlendComponent::REPLACE,
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DepthTexture::DEPTH_TEXTURE_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
 
         let wireframe_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(&globe_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
@@ -219,7 +228,7 @@ impl State {
             size,
             window,
             depth_texture,
-            texture_pipeline,
+            texture_pipeline_globe,
             wireframe_pipeline,
             touch_state: Default::default(),
             earth_state,
@@ -305,7 +314,7 @@ impl State {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.texture_pipeline);
+            render_pass.set_pipeline(&self.texture_pipeline_globe);
 
             let mut indices = 0;
 
