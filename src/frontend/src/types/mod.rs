@@ -4,7 +4,8 @@ pub mod earth;
 pub use earth::*;
 pub mod performance_metrics;
 pub use performance_metrics::*;
-
+pub mod query_poi;
+pub use query_poi::*;
 use std::hash::{Hash, Hasher};
 
 use glam::Vec3;

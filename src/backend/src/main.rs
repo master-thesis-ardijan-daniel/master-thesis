@@ -38,7 +38,7 @@ where
     GeoTree::new(path)
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 16)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let earth_map_tree = {
         let key = "EARTH_MAP_DATASET";
