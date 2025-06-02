@@ -4,7 +4,7 @@ use glam::Vec3;
 
 use super::HashablePoint;
 
-pub const PHI: f32 = 1.618_034_f32;
+pub const PHI: f32 = 1.618034;
 
 type Point = glam::Vec3;
 type Vertex = Point;
