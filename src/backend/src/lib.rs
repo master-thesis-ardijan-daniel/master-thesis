@@ -7,7 +7,7 @@ pub mod deserialize;
 pub mod serialize;
 
 pub mod earth_map;
-// mod light_pollution;
+pub mod light_pollution;
 pub mod population;
 
 fn slice<D>(data: &Tile<D::Type>, x: usize, y: usize, width: usize, height: usize) -> Tile<D::Type>
