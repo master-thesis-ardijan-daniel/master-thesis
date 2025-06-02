@@ -317,6 +317,7 @@ impl EarthState {
                         "/tile/{}/{}/{}",
                         tile_id.0, tile_id.1, tile_id.2
                     ))
+                    .cache(web_sys::RequestCache::ForceCache)
                     .send()
                     .await
                     .unwrap()
