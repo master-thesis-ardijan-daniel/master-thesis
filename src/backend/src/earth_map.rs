@@ -1,4 +1,4 @@
-use backend::{Bounds, Dataset, Tile};
+use crate::{Bounds, Dataset, Tile};
 use geo::Coord;
 use image::{DynamicImage, ImageBuffer, ImageReader, Rgba};
 use std::{fs::File, io::BufReader};

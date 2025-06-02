@@ -1,6 +1,6 @@
 use std::cmp::max;
 
-use backend::{Bounds, Dataset};
+use crate::{Bounds, Dataset, Tile};
 use geo::Coord;
 
 pub struct PopulationDataset {
@@ -41,7 +41,7 @@ impl Dataset for PopulationDataset {
         )
     }
 
-    fn downsample(data: &backend::Tile<Self::Type>) -> backend::Tile<Self::Type> {
+    fn downsample(data: &Tile<Self::Type>) -> Tile<Self::Type> {
         let scale = {
             let scale_height = data.len() / Self::TILE_SIZE as usize;
             let scale_width = data[0].len() / Self::TILE_SIZE as usize;
@@ -82,7 +82,7 @@ impl Dataset for PopulationDataset {
         -3.402_823e38
     }
 
-    fn data(&self) -> backend::Tile<Self::Type> {
+    fn data(&self) -> Tile<Self::Type> {
         let band = self
             .data
             .rasterbands()
@@ -97,7 +97,7 @@ impl Dataset for PopulationDataset {
         data.chunks(cols).map(|chunk| chunk.to_vec()).collect()
     }
 
-    fn bounds(&self) -> backend::Bounds {
+    fn bounds(&self) -> Bounds {
         Bounds::new(Coord { x: -180., y: -90. }, Coord { x: 180., y: 90. })
     }
 
