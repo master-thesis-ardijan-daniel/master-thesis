@@ -30,7 +30,7 @@ fn vs_main(
 }
 
 struct Metadata {
-    tiles: array<TileMetadata, 64>,
+    tiles: array<TileMetadata, 256>,
 }
 
 struct TileMetadata {
@@ -60,7 +60,7 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     var found_sample = false;
     var sample = vec4<f32>(); 
 
-    for (var layer = 0; layer < 64 ; layer++){
+    for (var layer = 0; layer < 256 ; layer++){
         let metadata = metadata.tiles[layer];
 
         let nw_lat = (metadata.nw_lat + 90.0)  / 180.0;
