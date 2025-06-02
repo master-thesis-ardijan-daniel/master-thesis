@@ -1,6 +1,7 @@
+use bytemuck::{Pod, Zeroable};
 use std::{cmp::max, path::Path};
 
-use backend::{Dataset, Tile};
+use crate::{Dataset, Tile};
 use common::Bounds;
 use geo::Coord;
 
@@ -19,16 +20,31 @@ impl LightPollutionDataset {
     }
 }
 
+#[repr(C)]
+#[derive(serde::Serialize, Pod, Zeroable, Clone, Copy, Default)]
+pub struct LightPollutionAggregate {
+    sum: f64,
+    count: usize,
+}
+
 impl Dataset for LightPollutionDataset {
     type Type = f32;
-    type AggregateType = f32;
+    type AggregateType = LightPollutionAggregate;
 
-    fn aggregate(_values: &[Self::Type]) -> Option<Self::AggregateType> {
-        None
+    fn aggregate(values: &[Self::Type]) -> Option<Self::AggregateType> {
+        let sum = values.iter().copied().map(Into::<f64>::into).sum();
+        let count = values.len();
+
+        Some(LightPollutionAggregate { sum, count })
     }
 
-    fn aggregate2(_values: &[Self::AggregateType]) -> Option<Self::AggregateType> {
-        None
+    fn aggregate2(values: &[Self::AggregateType]) -> Option<Self::AggregateType> {
+        values.into_iter().copied().reduce(|mut acc, value| {
+            acc.sum += value.sum;
+            acc.count += value.count;
+
+            acc
+        })
     }
 
     fn downsample(data: &Tile<Self::Type>) -> Tile<Self::Type> {
@@ -93,7 +109,7 @@ impl Dataset for LightPollutionDataset {
         data.chunks(cols).map(|chunk| chunk.to_vec()).collect()
     }
 
-    fn bounds(&self) -> backend::Bounds {
+    fn bounds(&self) -> Bounds {
         Bounds::new(Coord { x: -180., y: -90. }, Coord { x: 180., y: 90. })
     }
 

@@ -7,8 +7,8 @@ use axum::{
     Json, Router,
 };
 use backend::{
-    deserialize::GeoTree, earth_map::EarthmapDataset, population::PopulationDataset, Bounds,
-    Dataset,
+    deserialize::GeoTree, earth_map::EarthmapDataset, light_pollution::LightPollutionDataset,
+    Bounds, Dataset,
 };
 use bytemuck::Pod;
 use geo::{Coord, Polygon};
@@ -49,32 +49,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(initialize_tree("earth_map.db", dataset)?)
     };
 
-    let population_tree = {
-        let key = "POPULATION_DATASET";
-        let dataset = || {
-            PopulationDataset::new(
-                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
-            )
-        };
-
-        Arc::new(initialize_tree("population.db", dataset)?)
-    };
-
-    // let _light_pollution_tree = {
-    //     let key = "LIGHT_POLLUTION_DATASET";
+    // let population_tree = {
+    //     let key = "POPULATION_DATASET";
     //     let dataset = || {
-    //         LightPollutionDataset::new(
+    //         PopulationDataset::new(
     //             std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
     //         )
     //     };
 
-    //     Arc::new(initialize_tree("light_pollution.db", dataset)?)
+    //     Arc::new(initialize_tree("population.db", dataset)?)
     // };
+
+    let light_pollution_tree = {
+        let key = "LIGHT_POLLUTION_DATASET";
+        let dataset = || {
+            LightPollutionDataset::new(
+                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+            )
+        };
+
+        Arc::new(initialize_tree("light_pollution.db", dataset)?)
+    };
 
     let state = BackendState {
         earth_map_tree,
-        population_tree,
-        // _light_pollution_tree,
+        // population_tree,
+        light_pollution_tree,
     };
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
@@ -98,8 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Clone)]
 struct BackendState {
     earth_map_tree: Arc<GeoTree<EarthmapDataset>>,
-    population_tree: Arc<GeoTree<PopulationDataset>>,
-    // _light_pollution_tree: Arc<GeoTree<LightPollutionDataset>>,
+    // population_tree: Arc<GeoTree<PopulationDataset>>,
+    light_pollution_tree: Arc<GeoTree<LightPollutionDataset>>,
 }
 
 #[derive(Deserialize)]
@@ -143,7 +143,7 @@ async fn post_aggregate(
     State(state): State<BackendState>,
     Json(query): Json<Polygon<f32>>,
 ) -> impl IntoResponse {
-    let aggregate = state.population_tree.get_aggregate(query);
+    let aggregate = state.light_pollution_tree.get_aggregate(query);
 
     Json(aggregate)
 }
