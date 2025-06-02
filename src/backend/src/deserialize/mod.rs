@@ -5,6 +5,7 @@ use tree::{TileData, TileNode};
 
 use crate::Bounds;
 
+mod iterators;
 mod reader;
 mod tree;
 
