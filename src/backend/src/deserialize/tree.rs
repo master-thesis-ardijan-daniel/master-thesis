@@ -2,9 +2,11 @@ use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
 use common::{Bounds, TileRefResponse};
-use geo::Intersects;
+use geo::{Contains, Intersects};
 
 use crate::{deserialize::reader::Reader, Dataset};
+
+use super::iterators::ContainsIterator;
 
 pub struct GeoTree<D>
 where
@@ -115,6 +117,24 @@ where
         Some(TileRefResponse {
             data: data.tile.unwrap(),
             bounds: current.bounds,
+        })
+    }
+
+    pub fn get_aggregate<Query>(&self, query: Query) -> Option<D::AggregateType>
+    where
+        D::Type: Pod,
+        D::AggregateType: Pod,
+        Query: Contains<Bounds> + Intersects<Bounds>,
+    {
+        let reader = Reader::new(&self.data);
+
+        let iter = ContainsIterator::<D::Type, D::AggregateType, Query>::new(reader, query);
+
+        iter.fold(None, |acc, data| match (acc, data.aggregate) {
+            (Some(acc), Some(&aggregate)) => D::aggregate2(&[acc, aggregate]),
+            (Some(acc), None) => Some(acc),
+            (None, Some(&aggregate)) => Some(aggregate),
+            _ => None,
         })
     }
 }

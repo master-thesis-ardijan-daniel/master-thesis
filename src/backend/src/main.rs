@@ -3,20 +3,18 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderValue, Response},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
-use backend::{deserialize::GeoTree, Bounds, Dataset};
+use backend::{
+    deserialize::GeoTree, earth_map::EarthmapDataset, population::PopulationDataset, Bounds,
+    Dataset,
+};
 use bytemuck::Pod;
-use earth_map::EarthmapDataset;
-use geo::Coord;
+use geo::{Coord, Polygon};
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{services::ServeDir, trace::TraceLayer};
-
-mod earth_map;
-// mod light_pollution;
-// mod population;
 
 fn initialize_tree<P, F, D>(path: P, dataset: F) -> std::io::Result<GeoTree<D>>
 where
@@ -43,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let earth_map_tree = {
         let key = "EARTH_MAP_DATASET";
         let dataset = || {
-            earth_map::EarthmapDataset::new(
+            EarthmapDataset::new(
                 std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
             )
         };
@@ -51,16 +49,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(initialize_tree("earth_map.db", dataset)?)
     };
 
-    // let _population_tree = {
-    //     let key = "POPULATION_DATASET";
-    //     let dataset = || {
-    //         population::PopulationDataset::new(
-    //             std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
-    //         )
-    //     };
+    let population_tree = {
+        let key = "POPULATION_DATASET";
+        let dataset = || {
+            PopulationDataset::new(
+                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+            )
+        };
 
-    //     Arc::new(initialize_tree("population.db", dataset)?)
-    // };
+        Arc::new(initialize_tree("population.db", dataset)?)
+    };
 
     // let _light_pollution_tree = {
     //     let key = "LIGHT_POLLUTION_DATASET";
@@ -75,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = BackendState {
         earth_map_tree,
-        // _population_tree,
+        population_tree,
         // _light_pollution_tree,
     };
 
@@ -87,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
         .route("/tiles", get(get_tiles))
         .route("/tile/{z}/{y}/{x}", get(get_tile))
+        .route("/aggregate", post(post_aggregate))
         .with_state(state);
 
     println!("Listening on {}:{}", addr.ip(), addr.port());
@@ -99,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Clone)]
 struct BackendState {
     earth_map_tree: Arc<GeoTree<EarthmapDataset>>,
-    // _population_tree: Arc<GeoTree<PopulationDataset>>,
+    population_tree: Arc<GeoTree<PopulationDataset>>,
     // _light_pollution_tree: Arc<GeoTree<LightPollutionDataset>>,
 }
 
@@ -138,4 +137,13 @@ async fn get_tile(
         )
         .body(Body::from(data))
         .unwrap()
+}
+
+async fn post_aggregate(
+    State(state): State<BackendState>,
+    Json(query): Json<Polygon<f32>>,
+) -> impl IntoResponse {
+    let aggregate = state.population_tree.get_aggregate(query);
+
+    Json(aggregate)
 }
