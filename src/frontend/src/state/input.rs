@@ -34,11 +34,11 @@ impl State {
                 ..
             } => {
                 self.camera_state.controller.tilting = state.is_pressed();
-                self.earth_state.query_poi.start_query_poi();
+                // self.earth_state.query_poi.start_query_poi();
                 self.window.set_cursor(if state.is_pressed() {
                     CursorIcon::EResize
                 } else {
-                    self.earth_state.query_poi.end_query_poi();
+                    // self.earth_state.query_poi.end_query_poi();
                     CursorIcon::Grab
                 });
             }
@@ -56,7 +56,7 @@ impl State {
                 ..
             } => {
                 self.camera_state.controller.process_cursor_moved(*x, *y);
-                self.earth_state.query_poi.process_cursor_moved(*x, *y);
+                // self.earth_state.query_poi.process_cursor_moved(*x, *y);
 
                 if self.camera_state.controller.rotating || self.camera_state.controller.tilting {
                     self.window.request_redraw();
