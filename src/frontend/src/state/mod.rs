@@ -117,7 +117,7 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        let query_poi_pipeline_layout =
+        let _query_poi_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Query POI Pipeline Layout"),
                 bind_group_layouts: &[&camera_state.bind_group_layout],

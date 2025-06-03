@@ -1,9 +1,6 @@
-use glam::{Vec2, Vec3};
+use glam::Vec3;
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
-    BufferAddress, BufferDescriptor, BufferUsages, Device, Queue, QueueWriteBufferView,
-    VertexAttribute, VertexFormat, VertexStepMode,
-};
+    BufferDescriptor, BufferUsages, Device, Queue, };
 
 #[derive(Debug)]
 pub struct QueryPoi {
@@ -54,7 +51,7 @@ impl QueryPoi {
         }
     }
 
-    fn calculate_intersection(&mut self, mouse_dx: f64, mouse_dy: f64) -> Option<Vec3> {
+    fn calculate_intersection(&mut self, _mouse_dx: f64, _mouse_dy: f64) -> Option<Vec3> {
         todo!()
         // self.start_pos
     }
