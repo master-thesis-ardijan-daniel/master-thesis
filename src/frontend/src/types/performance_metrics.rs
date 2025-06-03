@@ -57,7 +57,7 @@ impl PerformanceMetrics {
     }
 
     pub fn send_perf_event(&mut self) {
-        if self.timer_since_last_reset.elapsed().as_secs_f64() < 0.1 {
+        if self.timer_since_last_reset.elapsed().as_secs_f64() < 0.2 {
             return;
         }
 

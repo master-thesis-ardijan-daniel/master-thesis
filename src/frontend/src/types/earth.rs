@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use common::{Bounds, TileMetadata, TileResponse};
-use geo::{coord, Coord, Rect};
+use geo::{coord, Coord, InterpolateLine, Rect};
 use glam::{Quat, Vec3};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -51,7 +51,7 @@ pub struct EarthState {
 
     buffer_allocator: BufferAllocator,
     tile_map: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
-    pub query_poi: QueryPoi,
+    // pub query_poi: QueryPoi,
 }
 
 impl EarthState {
@@ -250,7 +250,7 @@ impl EarthState {
             texture_buffer,
             texture_bind_group,
             tile_metadata_buffer,
-            query_poi: QueryPoi::new(&device),
+            // query_poi: QueryPoi::new(&device),
         }
     }
 
@@ -304,7 +304,7 @@ impl EarthState {
         let fov_intersections =
             calculate_camera_earth_view_bounding_box(projection, camera, Vec3::ZERO);
 
-        // return self.test_bounding_box(&fov_intersections, queue);
+        // return self.test_bounding_box(&fov_intersections, _queue);
 
         let new_allocations = self.buffer_allocator.allocate(
             self.buffer_allocator.current_level as u32,
@@ -395,7 +395,6 @@ fn icosahedron_to_wgs84(v: Point) -> Point {
     let v = v.normalize();
     const EARTH_RADIUS: f32 = 1.;
     const FLATTENING: f32 = 1. / 298.257;
-    // const FLATTENING: f32 = 0.;
 
     let lat = convert_point_on_surface_to_lat_lon(v).y.to_radians();
 
@@ -407,99 +406,34 @@ fn icosahedron_to_wgs84(v: Point) -> Point {
     v * r
 }
 
-fn closest_intersection_or_surface_point(
-    p: Vec3, // point on ray
-    v: Vec3, // direction (doesn't have to be normalized)
-    c: Vec3, // sphere center
-    r: f32,  // sphere radius
-) -> Vec3 {
-    let oc = p - c;
-    let a = v.dot(v);
-    let b = 2.0 * v.dot(oc);
-    let c_term = oc.dot(oc) - r * r;
-    let discriminant = b * b - 4.0 * a * c_term;
+fn ray_intersects_sphere(
+    ray_origin: Vec3,
+    ray_direction: Vec3,
+    sphere_center: Vec3,
+    sphere_radius: f32,
+) -> Option<Vec3> {
+    let origin_to_center = ray_origin - sphere_center;
 
-    if discriminant >= 0.0 {
-        // Ray hits the sphere
-        let sqrt_disc = discriminant.sqrt();
-        let t1 = (-b - sqrt_disc) / (2.0 * a);
-        let t2 = (-b + sqrt_disc) / (2.0 * a);
+    let a = ray_direction.dot(ray_direction);
+    let b = 2.0 * ray_direction.dot(origin_to_center);
+    let c = origin_to_center.dot(origin_to_center) - sphere_radius * sphere_radius;
 
-        // Only consider points in the direction of the ray (t >= 0)
-        let t_closest = if t1 >= 0.0 {
-            t1
-        } else if t2 >= 0.0 {
-            t2
-        } else {
-            // Both behind the ray origin
-            return closest_point_on_surface(p, v, c, r);
-        };
-
-        p + t_closest * v
-    } else {
-        // No intersection; find closest point on sphere surface
-        closest_point_on_surface(p, v, c, r)
-    }
-}
-
-#[inline(always)]
-fn closest_point_on_surface(
-    p: Vec3, // ray origin
-    v: Vec3, // ray direction
-    c: Vec3, // sphere center
-    r: f32,  // radius
-) -> Vec3 {
-    // Closest point on ray to sphere center
-    let v_norm = v.normalize();
-    let to_center = c - p;
-    let t = to_center.dot(v_norm); // projected distance along ray
-    let closest_point = p + t * v_norm;
-
-    // Direction from sphere center to that point
-    let direction = (closest_point - c).normalize();
-
-    // Closest surface point in that direction
-    c + r * direction
-}
-
-fn calculate_camera_earth_view_bounding_box(
-    camera_projection: &Projection,
-    camera: &Camera,
-    earth_position: Point,
-) -> Vec<Coord<f32>> {
-    const N_RAYS: usize = 6;
-    let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
-    let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
-    let cam_dir = -cam_pos.normalize();
-
-    let (orth1, orth2) = cam_dir.any_orthonormal_pair();
-    let fov = camera_projection.fovy;
-    let half_fov = fov / 2.0;
-
-    let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
-
-    let angle_step = fov / (N_RAYS - 1) as f32;
-    let mut angle_offsets = [0.0f32; N_RAYS];
-
-    for (i, entry) in angle_offsets.iter_mut().enumerate().take(N_RAYS) {
-        let mut angle_offset = -half_fov + i as f32 * angle_step;
-
-        std::mem::swap(entry, &mut angle_offset);
+    let discriminant = b * b - 4.0 * a * c;
+    if discriminant < 0.0 {
+        return None;
     }
 
-    for &angle_v in &angle_offsets {
-        let qv = Quat::from_axis_angle(orth2, angle_v);
-        for &angle_u in &angle_offsets {
-            let qu = Quat::from_axis_angle(orth1, angle_u);
-            let ray_dir = (qu * qv * cam_dir).normalize();
+    let sqrt_discriminant = discriminant.sqrt();
+    let t0 = (-b - sqrt_discriminant) / (2.0 * a);
+    let t1 = (-b + sqrt_discriminant) / (2.0 * a);
 
-            let point =
-                closest_intersection_or_surface_point(cam_pos, ray_dir, earth_position, 1.0);
-            surface_points.push(convert_point_on_surface_to_lat_lon(point));
-        }
-    }
+    let closest_positive_t = match (t0 >= 0.0, t1 >= 0.0) {
+        (true, _) => t0,
+        (false, true) => t1,
+        _ => return None,
+    };
 
-    surface_points
+    Some(ray_origin + closest_positive_t * ray_direction)
 }
 
 fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
@@ -512,4 +446,52 @@ fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
     let lat = (-point.z).clamp(-1., 1.).asin().to_degrees();
 
     coord! {x:lon,y:lat}
+}
+
+pub fn calculate_camera_earth_view_bounding_box(
+    camera_projection: &Projection,
+    camera: &Camera,
+    earth_position: Point,
+) -> Vec<Coord<f32>> {
+    const N_RAYS: usize = 6;
+
+    let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
+    let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
+    let view_matrix = camera.calc_matrix();
+
+    let inv_view = view_matrix.inverse();
+    let right = inv_view.transform_vector3(Vec3::X).normalize();
+    let up = inv_view.transform_vector3(Vec3::Y).normalize();
+    let forward = inv_view.transform_vector3(Vec3::Z).normalize(); // forward is -Z
+
+    let fov_y = camera_projection.fovy;
+    let aspect = camera_projection.aspect();
+
+    let half_fov_y = fov_y / 2.0;
+    let half_fov_x = (half_fov_y.tan() * aspect).atan();
+
+    let v_step = fov_y / (N_RAYS - 1) as f32;
+    let h_step = (half_fov_x * 2.0) / (N_RAYS - 1) as f32;
+
+    let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
+
+    for i in 0..N_RAYS {
+        let v_angle = -half_fov_y + i as f32 * v_step;
+        let sin_v = v_angle.sin();
+        let cos_v = v_angle.cos();
+
+        for j in 0..N_RAYS {
+            let h_angle = -half_fov_x + j as f32 * h_step;
+            let sin_h = h_angle.sin();
+            let cos_h = h_angle.cos();
+
+            let dir = (forward * cos_v * cos_h + right * sin_h + up * sin_v * cos_h).normalize();
+
+            if let Some(hit) = ray_intersects_sphere(cam_pos, dir, earth_position, 1.0) {
+                surface_points.push(convert_point_on_surface_to_lat_lon(hit));
+            }
+        }
+    }
+
+    surface_points
 }
