@@ -39,7 +39,7 @@ impl Dataset for LightPollutionDataset {
     }
 
     fn aggregate2(values: &[Self::AggregateType]) -> Option<Self::AggregateType> {
-        values.into_iter().copied().reduce(|mut acc, value| {
+        values.iter().copied().reduce(|mut acc, value| {
             acc.sum += value.sum;
             acc.count += value.count;
 

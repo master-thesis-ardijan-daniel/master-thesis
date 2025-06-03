@@ -7,8 +7,8 @@ use axum::{
     Json, Router,
 };
 use backend::{
-    deserialize::GeoTree, earth_map::EarthmapDataset, light_pollution::LightPollutionDataset,
-    population::PopulationDataset, Bounds, Dataset,
+    deserialize::GeoTree, earth_map::EarthmapDataset, population::PopulationDataset, Bounds,
+    Dataset,
 };
 use bytemuck::Pod;
 use geo::{Coord, Polygon};

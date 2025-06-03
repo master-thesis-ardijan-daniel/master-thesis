@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use common::{Bounds, TileMetadata, TileResponse};
-use geo::{coord, Coord, InterpolateLine, Rect};
-use glam::{Quat, Vec3};
+use geo::{coord, Coord, Rect};
+use glam::Vec3;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -19,7 +19,7 @@ use crate::{
     utils::buffer::{BufferAllocator, BufferSlot, Level},
 };
 
-use super::{Icosphere, QueryPoi};
+use super::Icosphere;
 
 type Point = Vec3;
 
@@ -427,11 +427,11 @@ fn ray_intersects_sphere(
     let t0 = (-b - sqrt_discriminant) / (2.0 * a);
     let t1 = (-b + sqrt_discriminant) / (2.0 * a);
 
-    let closest_positive_t = match (t0 >= 0.0, t1 >= 0.0) {
-        (true, _) => t0,
-        (false, true) => t1,
-        _ => return None,
-    };
+    if t0 < 0. && t1 < 0. {
+        return None;
+    }
+
+    let closest_positive_t = if t0 >= 0.0 { t0 } else { t1 };
 
     Some(ray_origin + closest_positive_t * ray_direction)
 }
@@ -453,10 +453,15 @@ pub fn calculate_camera_earth_view_bounding_box(
     camera: &Camera,
     earth_position: Point,
 ) -> Vec<Coord<f32>> {
-    const N_RAYS: usize = 6;
+    let mut n_rays: usize = 6;
 
     let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
     let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
+
+    if (cam_pos - earth_position).length() > 2. {
+        n_rays = 1;
+    }
+
     let view_matrix = camera.calc_matrix();
 
     let inv_view = view_matrix.inverse();
@@ -470,17 +475,17 @@ pub fn calculate_camera_earth_view_bounding_box(
     let half_fov_y = fov_y / 2.0;
     let half_fov_x = (half_fov_y.tan() * aspect).atan();
 
-    let v_step = fov_y / (N_RAYS - 1) as f32;
-    let h_step = (half_fov_x * 2.0) / (N_RAYS - 1) as f32;
+    let v_step = fov_y / (n_rays - 1) as f32;
+    let h_step = (half_fov_x * 2.0) / (n_rays - 1) as f32;
 
-    let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
+    let mut surface_points = Vec::with_capacity(n_rays * n_rays);
 
-    for i in 0..N_RAYS {
+    for i in 0..n_rays {
         let v_angle = -half_fov_y + i as f32 * v_step;
         let sin_v = v_angle.sin();
         let cos_v = v_angle.cos();
 
-        for j in 0..N_RAYS {
+        for j in 0..n_rays {
             let h_angle = -half_fov_x + j as f32 * h_step;
             let sin_h = h_angle.sin();
             let cos_h = h_angle.cos();
