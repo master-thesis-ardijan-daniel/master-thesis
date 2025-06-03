@@ -28,7 +28,6 @@ pub struct Camera {
     pub orientation: Quat,
     pub current_orientation: Quat,
 
-    angular_velocity: Quat,
     friction: f32,
 }
 
@@ -44,8 +43,7 @@ impl Camera {
             orientation: Quat::IDENTITY,
             current_orientation: Quat::IDENTITY,
 
-            angular_velocity: Quat::IDENTITY,
-            friction: 3.,
+            friction: 5.,
         }
     }
 
@@ -67,11 +65,12 @@ impl Camera {
         object_radius: f32,
         projection: &Projection,
     ) {
-        let visible_height = 2.0 * self.current_radius * (projection.fovy * 0.5).tan();
-
-        let object_screen_radius = (object_radius / visible_height) * projection.size.min_element();
-
         let screen_center = projection.size * 0.5;
+
+        let angular_diameter = 2.0 * (object_radius / self.current_radius).asin();
+
+        let object_screen_radius =
+            (angular_diameter / projection.fovy) * (projection.size.min_element() / 2.0);
 
         let p1 = Vec2::new(-1., 1.) * (previous_position - screen_center) / object_screen_radius;
         let p2 = Vec2::new(-1., 1.) * (current_position - screen_center) / object_screen_radius;
@@ -91,43 +90,31 @@ impl Camera {
         }
 
         let axis = axis.normalize();
+        let angle = v2.dot(v1).acos();
 
-        let angle = {
-            let distance = Vec3::distance(v1, v2) / (2. * R);
+        let screen_radius = projection.size.min_element() / 2.0;
+        let scaling_ratio = object_screen_radius / screen_radius;
 
-            2. * distance.clamp(-1., 1.).asin()
-        };
+        // let (sensitivity, scaling_ratio) = (1., 2.);
 
-        let rotation = Quat::from_axis_angle(axis, angle);
+        let rotation = Quat::from_axis_angle(axis, sensitivity * angle / scaling_ratio).normalize();
 
         self.orientation = (rotation * self.orientation).normalize();
-
-        let impulse = Quat::from_axis_angle(axis, angle * sensitivity);
-
-        self.angular_velocity = (impulse * self.angular_velocity).normalize();
     }
 
     pub fn animate(&mut self, duration: f32) -> AnimationState {
         let mut animation_state = AnimationState::Finished;
 
-        if !self.angular_velocity.is_near_identity() {
-            let friction_factor = (-self.friction * duration).exp();
+        if !self.current_orientation.abs_diff_eq(self.orientation, 1e-6) {
+            let t = 1.0 - (-self.friction * duration).exp();
 
-            let (axis, angle) = self.angular_velocity.to_axis_angle();
+            self.current_orientation = self.current_orientation.slerp(self.orientation, t);
 
-            let frame_rotation = Quat::from_axis_angle(axis, angle * duration);
-
-            self.current_orientation = (frame_rotation * self.current_orientation).normalize();
-
-            let (axis, angle) = self.angular_velocity.to_axis_angle();
-
-            self.angular_velocity = Quat::from_axis_angle(axis, angle * friction_factor);
-
-            if self.angular_velocity.is_near_identity() {
-                self.angular_velocity = Quat::IDENTITY;
+            if self.current_orientation.abs_diff_eq(self.orientation, 1e-6) {
+                self.current_orientation = self.orientation;
+            } else {
+                animation_state = AnimationState::Animating;
             }
-
-            animation_state = AnimationState::Animating;
         }
 
         if self.radius != self.current_radius {

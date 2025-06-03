@@ -98,14 +98,10 @@ impl CameraController {
         self.camera.radius = (self.camera.radius - scroll_factor).clamp(self.min, self.max);
 
         if self.rotating {
-            let distance_ratio = self.camera.current_radius / 2.;
-            let distance_factor =
-                (distance_ratio.powi(3) / (distance_ratio.powi(3) + 1.0)).clamp(0.05, 1.0);
-            let sensitivity = self.sensitivity * duration * distance_factor;
             self.camera.rotate(
                 self.last_position,
                 self.current_position,
-                sensitivity,
+                self.sensitivity,
                 self.size,
                 &self.projection,
             );
