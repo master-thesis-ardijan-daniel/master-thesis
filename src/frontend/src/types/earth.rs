@@ -51,12 +51,19 @@ pub struct EarthState {
 
     buffer_allocator: BufferAllocator,
     tile_map: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
+
+    population_buffer_allocator: BufferAllocator,
+    population_tile_map: HashMap<(u32, u32, u32), TileResponse<f32>>,
     // pub query_poi: QueryPoi,
 }
 
 impl EarthState {
     pub fn insert_tile(&mut self, id: (u32, u32, u32), data: TileResponse<[u8; 4]>) {
         self.tile_map.insert(id, data);
+    }
+
+    pub fn insert_population_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
+        self.population_tile_map.insert(id, data);
     }
 
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
@@ -67,14 +74,40 @@ impl EarthState {
                 continue;
             };
 
-            self.write_a_single_tile_to_buffer(id, tile, slot, queue);
+            let data = tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect::<Vec<u8>>();
+            let metadata = TileMetadata::from((&tile, id.0));
+
+            self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
+        }
+
+        let tiles = std::mem::take(&mut self.population_tile_map);
+
+        for (id, tile) in tiles.into_iter() {
+            let Some(&slot) = self.buffer_allocator.slot(&id) else {
+                continue;
+            };
+
+            let data = tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flat_map(|pixel| pixel.to_ne_bytes())
+                .collect::<Vec<u8>>();
+            let metadata = TileMetadata::from((&tile, id.0));
+
+            self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
         }
     }
 
     pub fn write_a_single_tile_to_buffer(
         &mut self,
-        id: (u32, u32, u32),
-        new_tile: TileResponse<[u8; 4]>,
+        data: &[u8],
+        metadata: TileMetadata,
         slot: BufferSlot,
         queue: &Queue,
     ) {
@@ -89,12 +122,7 @@ impl EarthState {
                 },
                 aspect: TextureAspect::All,
             },
-            &new_tile
-                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .collect::<Vec<u8>>(),
+            data,
             TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(TEXTURE_WIDTH * 4),
@@ -106,8 +134,6 @@ impl EarthState {
                 depth_or_array_layers: 1,
             },
         );
-
-        let metadata = TileMetadata::from((&new_tile, id.0));
 
         queue.write_buffer(
             &self.tile_metadata_buffer,
@@ -221,19 +247,41 @@ impl EarthState {
             ],
         });
 
-        let levels = (0..=7)
-            .map(|level| {
-                Level::new(
-                    Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
-                    2_usize.pow(level),
-                    2_usize.pow(level),
-                )
-            })
-            .collect();
+        let buffer_allocator = {
+            let levels = (0..=7)
+                .map(|level| {
+                    Level::new(
+                        Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                        2_usize.pow(level),
+                        2_usize.pow(level),
+                    )
+                })
+                .collect();
+
+            BufferAllocator::new(levels, BUFFER_SIZE as usize / 2, 0)
+        };
+
+        let population_buffer_allocator = {
+            let levels = (0..=8)
+                .map(|level| {
+                    Level::new(
+                        Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                        2_usize.pow(level),
+                        2_usize.pow(level),
+                    )
+                })
+                .collect();
+
+            BufferAllocator::new(levels, BUFFER_SIZE as usize / 2, BUFFER_SIZE as usize / 2)
+        };
 
         Self {
             tile_map: HashMap::new(),
-            buffer_allocator: BufferAllocator::new(levels, BUFFER_SIZE as usize),
+            buffer_allocator,
+
+            population_tile_map: HashMap::new(),
+            population_buffer_allocator,
+
             eventloop,
             vertex_buffer,
             index_buffer,
@@ -286,7 +334,7 @@ impl EarthState {
                 ),
             };
 
-            self.write_a_single_tile_to_buffer((0, 0, 0), tile, BufferSlot(i), queue);
+            // self.write_a_single_tile_to_buffer((0, 0, 0), tile, BufferSlot(i), queue);
             // #[cfg(feature = "debug")]
             // log::warn!("tile bounds! {:#?}", tile.bounds,);
         }
@@ -311,6 +359,11 @@ impl EarthState {
             &fov_intersections,
         );
 
+        let new_population_allocations = self.population_buffer_allocator.allocate(
+            self.population_buffer_allocator.current_level as u32,
+            &fov_intersections,
+        );
+
         let proxy = self.eventloop.clone();
         wasm_bindgen_futures::spawn_local(async move {
             for tile_id in new_allocations {
@@ -332,6 +385,29 @@ impl EarthState {
                 proxy
                     .send_event(CustomEvent::HttpResponse(
                         crate::app::CustomResponseType::TileResponse(tile, tile_id),
+                    ))
+                    .unwrap();
+            }
+
+            for tile_id in new_population_allocations {
+                let tile: TileResponse<f32> = bincode::deserialize(
+                    &gloo_net::http::Request::get(&format!(
+                        "/pop_tile/{}/{}/{}",
+                        tile_id.0, tile_id.1, tile_id.2
+                    ))
+                    .cache(web_sys::RequestCache::ForceCache)
+                    .send()
+                    .await
+                    .unwrap()
+                    .binary()
+                    .await
+                    .unwrap(),
+                )
+                .unwrap();
+
+                proxy
+                    .send_event(CustomEvent::HttpResponse(
+                        crate::app::CustomResponseType::PopulationTileResponse(tile, tile_id),
                     ))
                     .unwrap();
             }

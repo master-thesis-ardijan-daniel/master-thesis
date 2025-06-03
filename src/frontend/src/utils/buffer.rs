@@ -9,12 +9,6 @@ use geo::Coord;
 #[derive(Debug, Copy, Clone)]
 pub struct BufferSlot(pub usize);
 
-// impl AsRef<u32> for BufferSlot {
-//     fn as_ref(&self) -> &u32 {
-//         &self.0
-//     }
-// }
-
 impl Deref for BufferSlot {
     type Target = usize;
 
@@ -51,8 +45,8 @@ pub struct BufferAllocator {
 }
 
 impl BufferAllocator {
-    pub fn new(levels: Vec<Level>, slots: usize) -> Self {
-        let free = (0..slots).map(BufferSlot).collect();
+    pub fn new(levels: Vec<Level>, slots: usize, offset: usize) -> Self {
+        let free = (offset..slots + offset).map(BufferSlot).collect();
 
         Self {
             levels,
