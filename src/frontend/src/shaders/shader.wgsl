@@ -41,7 +41,7 @@ struct TileMetadata {
     width: u32,
     height: u32,
     level: u32,
-    pad_2: u32,
+    data_type: u32,
 }
 
 @group(1) @binding(0) var t_diffuse: texture_2d_array<f32>; 
@@ -56,9 +56,15 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
     let lat = (asin(-pos.z) / PI)+0.5 ;
 
-    var highest_z = u32(0);
-    var found_sample = false;
-    var sample = vec4<f32>(); 
+    var highest_z_color = u32(0);
+    var highest_z_pop = u32(0);
+    var found_sample_color = false;
+    var found_sample_pop = false;
+    var sample_texture = vec4<f32>(); 
+    var sample_pop = vec2<f32>(); 
+    var pop_layer = i32(0); 
+    var sample_color = vec2<f32>(); 
+    var color_layer = i32(0); 
 
     for (var layer = 0; layer < 256 ; layer++){
         let metadata = metadata.tiles[layer];
@@ -79,23 +85,63 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         let scaled_u = u * f32(metadata.width)/256.;
         let scaled_v = v * f32(metadata.height)/256.;
 
-        if (highest_z <= metadata.level) {
-            found_sample = true;
-            highest_z = metadata.level;
-            sample = textureSample(
+        if metadata.data_type==0{
+            if (highest_z_color <= metadata.level) {
+                found_sample_color = true;
+                highest_z_color = metadata.level;
+                sample_color = vec2<f32>(scaled_u,scaled_v);
+                color_layer=layer;
+            };
+        } else {
+            if (highest_z_pop <= metadata.level) {
+                found_sample_pop = true;
+                highest_z_pop = metadata.level;
+                sample_pop = vec2<f32>(scaled_u,scaled_v);
+                pop_layer=layer;
+            };
+        }
+
+    }
+
+    var return_color = vec4<f32>(0.2,0.2,0.2,1.0);
+
+    if found_sample_color{
+            return_color = textureSample(
                 t_diffuse,
                 s_diffuse,
-                vec2<f32>(scaled_u,scaled_v ),
-                layer
+                sample_color,
+                color_layer
             );
-        };
+
+        }
+
+    if found_sample_pop{
+            let sample_rgba = textureSample(
+                t_diffuse,
+                s_diffuse,
+                sample_pop,
+                pop_layer
+            );
+
+            let first = u32(sample_rgba.r*256.);
+            let second = u32(sample_rgba.g*256.);
+            let third = u32(sample_rgba.b*256.);
+            let fourth = u32(sample_rgba.a*256.);
+
+            let total:u32 = first | (second<<8)| (third<<16)| (fourth<<24);
+
+            // let v: u32 = pack4x8unorm(sample_rgba);
+
+            // let v : f32 = textureLoad(t_diffuse, vec2<i32>(x, y), layer, mip = 0).r;
+
+            // let population_value = 1.+bitcast<f32>(total)/1000.;
+            let population_value = 1.;
+
+            return_color= return_color*population_value;
     }
 
-    if found_sample{
-        return sample;
-    }
 
-    return vec4<f32>(0., lon, lat, 1.0);
+    return return_color;
 }
 
 // @fragment

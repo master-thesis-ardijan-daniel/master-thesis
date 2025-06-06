@@ -80,7 +80,7 @@ impl EarthState {
                 .flatten()
                 .flatten()
                 .collect::<Vec<u8>>();
-            let metadata = TileMetadata::from((&tile, id.0));
+            let metadata = TileMetadata::from((&tile, id.0, 0));
 
             self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
         }
@@ -98,7 +98,7 @@ impl EarthState {
                 .flatten()
                 .flat_map(|pixel| pixel.to_ne_bytes())
                 .collect::<Vec<u8>>();
-            let metadata = TileMetadata::from((&tile, id.0));
+            let metadata = TileMetadata::from((&tile, id.0, 1));
 
             self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
         }
@@ -173,9 +173,6 @@ impl EarthState {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
@@ -203,7 +200,7 @@ impl EarthState {
                         binding: 0,
                         visibility: ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
@@ -212,7 +209,7 @@ impl EarthState {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {

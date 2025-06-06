@@ -98,7 +98,13 @@ impl Dataset for PopulationDataset {
     }
 
     fn bounds(&self) -> Bounds {
-        Bounds::new(Coord { x: -180., y: -90. }, Coord { x: 180., y: 90. })
+        Bounds::new(
+            Coord { x: -180., y: -72. },
+            Coord {
+                x: 179.99874,
+                y: 83.99958,
+            },
+        )
     }
 
     const TILE_SIZE: u32 = 256;

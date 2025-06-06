@@ -33,7 +33,7 @@ pub struct TileMetadata {
     pub width: u32,
     pub height: u32,
     pub level: u32,
-    pub pad_2: u32,
+    pub data_type: u32,
 }
 
 impl<T> TileResponse<T>
@@ -55,8 +55,8 @@ where
     }
 }
 
-impl<T> From<(&TileResponse<T>, u32)> for TileMetadata {
-    fn from((tile, level): (&TileResponse<T>, u32)) -> Self {
+impl<T> From<(&TileResponse<T>, u32, u32)> for TileMetadata {
+    fn from((tile, level, data_type): (&TileResponse<T>, u32, u32)) -> Self {
         Self {
             nw_lat: tile.bounds.max().y,
             nw_lon: tile.bounds.min().x,
@@ -65,7 +65,7 @@ impl<T> From<(&TileResponse<T>, u32)> for TileMetadata {
             width: tile.data[0].len() as u32,
             height: tile.data.len() as u32,
             level,
-            pad_2: 0,
+            data_type: data_type,
         }
     }
 }
