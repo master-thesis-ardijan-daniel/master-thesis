@@ -85,8 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .fallback_service(ServeDir::new(env!("ASSETS_DIR")))
         .route("/tiles", get(get_tiles))
         .route("/tile/{z}/{y}/{x}", get(get_tile))
-        .route("/lp_tile/{z}/{y}/{x}", get(get_lp_tile))
-        .route("/pop_tile/{z}/{y}/{x}", get(get_lp_tile))
+        // .route("/lp_tile/{z}/{y}/{x}", get(get_lp_tile))
+        .route("/pop_tile/{z}/{y}/{x}", get(get_pop_tile))
         // .route("/aggregate/lp", post(post_lp_aggregate))
         .route("/aggregate/pop", post(post_pop_aggregate))
         .with_state(state);
@@ -126,7 +126,7 @@ struct TileQuery {
     z: usize,
 }
 
-async fn get_lp_tile(
+async fn get_pop_tile(
     Path(TileQuery { x, y, z }): Path<TileQuery>,
     State(state): State<BackendState>,
 ) -> impl IntoResponse {
@@ -191,3 +191,69 @@ async fn post_pop_aggregate(
 
 //     Json(aggregate)
 // }
+
+fn write_to_image() {
+    use backend::flatten;
+    use image::{buffer::Rows, ImageBuffer, Luma};
+
+    let population_tree = {
+        let key = "POPULATION_DATASET";
+        let dataset = || {
+            PopulationDataset::new(
+                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+            )
+        };
+
+        initialize_tree("population.db", dataset).unwrap()
+    };
+
+    let level: usize = 3;
+    let mut img_data = vec![];
+    for y in 0..2_usize.pow(level as u32) {
+        let mut row = vec![];
+        for x in 0..2_usize.pow(level as u32) {
+            row.push(
+                population_tree
+                    .get_tile(x, y, level)
+                    .unwrap()
+                    .data
+                    .into_iter()
+                    .map(|x| x.to_vec())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        img_data.push(row);
+    }
+
+    let mut result = vec![];
+
+    for outer_row in 0..img_data.len() {
+        for inner_row in 0..img_data[0][0].len() {
+            let mut row = Vec::new();
+
+            for outer_col in 0..img_data[0].len() {
+                row.extend_from_slice(&img_data[outer_row][outer_col][inner_row]);
+            }
+
+            result.push(row);
+        }
+    }
+
+    let width = result[0].len();
+    let height = result.len();
+
+    let pixels = result
+        .into_iter()
+        .flatten()
+        .map(|x| x as u16)
+        .collect::<Vec<u16>>();
+
+    let img: ImageBuffer<Luma<u16>, Vec<u16>> =
+        ImageBuffer::from_vec(width as u32, height as u32, pixels)
+            .ok_or("Failed to create image from normalized f32 data")
+            .unwrap();
+
+    // Save as TIFF
+    img.save_with_format("testing_image.tiff", image::ImageFormat::Tiff)
+        .unwrap();
+}

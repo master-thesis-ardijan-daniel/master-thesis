@@ -88,7 +88,7 @@ impl EarthState {
         let tiles = std::mem::take(&mut self.population_tile_map);
 
         for (id, tile) in tiles.into_iter() {
-            let Some(&slot) = self.buffer_allocator.slot(&id) else {
+            let Some(&slot) = self.population_buffer_allocator.slot(&id) else {
                 continue;
             };
 
@@ -262,7 +262,13 @@ impl EarthState {
             let levels = (0..=8)
                 .map(|level| {
                     Level::new(
-                        Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                        Bounds::new(
+                            Coord { x: -180., y: -72. },
+                            Coord {
+                                x: 179.99874,
+                                y: 83.99958,
+                            },
+                        ),
                         2_usize.pow(level),
                         2_usize.pow(level),
                     )

@@ -71,7 +71,7 @@ pub trait Dataset {
     const MAX_LEVEL: u32;
 }
 
-fn flatten<T>(data: Vec<Vec<&Tile<T>>>) -> Tile<T>
+pub fn flatten<T>(data: Vec<Vec<&Tile<T>>>) -> Tile<T>
 where
     T: Clone,
 {

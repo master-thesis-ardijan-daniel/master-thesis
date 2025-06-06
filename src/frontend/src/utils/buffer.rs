@@ -21,6 +21,7 @@ impl Deref for BufferSlot {
 pub struct Level {
     step_x: f32,
     step_y: f32,
+    bounds: Bounds,
 }
 
 impl Level {
@@ -28,7 +29,11 @@ impl Level {
         let step_x = bounds.width() / width as f32;
         let step_y = bounds.height() / height as f32;
 
-        Self { step_x, step_y }
+        Self {
+            step_x,
+            step_y,
+            bounds,
+        }
     }
 }
 
@@ -67,8 +72,8 @@ impl BufferAllocator {
         for point in points {
             visible.insert((
                 zoom,
-                ((90. - point.y) / level.step_y).floor() as u32,
-                ((180. + point.x) / level.step_x).floor() as u32,
+                ((level.bounds.max().y - point.y) / level.step_y).floor() as u32,
+                ((level.bounds.min().x.abs() + point.x) / level.step_x).floor() as u32,
             ));
         }
 

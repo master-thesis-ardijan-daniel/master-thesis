@@ -103,6 +103,11 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 
     }
 
+    if (!found_sample_pop && !found_sample_color){
+        discard;
+    }
+
+
     var return_color = vec4<f32>(0.2,0.2,0.2,1.0);
 
     if found_sample_color{
@@ -112,7 +117,6 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
                 sample_color,
                 color_layer
             );
-
         }
 
     if found_sample_pop{
@@ -123,10 +127,10 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
                 pop_layer
             );
 
-            let first = u32(sample_rgba.r*256.);
-            let second = u32(sample_rgba.g*256.);
-            let third = u32(sample_rgba.b*256.);
-            let fourth = u32(sample_rgba.a*256.);
+            let first = u32(sample_rgba.r*255.);
+            let second = u32(sample_rgba.g*255.);
+            let third = u32(sample_rgba.b*255.);
+            let fourth = u32(sample_rgba.a*255.);
 
             let total:u32 = first | (second<<8)| (third<<16)| (fourth<<24);
 
@@ -134,15 +138,21 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 
             // let v : f32 = textureLoad(t_diffuse, vec2<i32>(x, y), layer, mip = 0).r;
 
-            // let population_value = 1.+bitcast<f32>(total)/1000.;
-            let population_value = 1.;
+            var population_value = bitcast<f32>(total);
+            if population_value>0.{
 
-            return_color= return_color*population_value;
+                population_value = 1.+population_value/1000.;
+                return_color= return_color*population_value;
+            }
+            // let population_value = 1.;
+
     }
 
 
     return return_color;
 }
+
+
 
 // @fragment
 // fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
