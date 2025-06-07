@@ -48,42 +48,40 @@ impl Dataset for LightPollutionDataset {
     }
 
     fn downsample(data: &Tile<Self::Type>) -> Tile<Self::Type> {
-        let scale = {
-            let scale_height = data.len() / Self::TILE_SIZE as usize;
-            let scale_width = data[0].len() / Self::TILE_SIZE as usize;
+        let input_height = data.len();
+        let input_width = data[0].len();
 
-            max(scale_height, scale_width)
-        };
+        let output_height = Self::TILE_SIZE as usize;
+        let output_width = Self::TILE_SIZE as usize;
 
-        let height = data.len() / scale;
-        let width = data[0].len() / scale;
+        let scale_y = input_height as f32 / output_height as f32;
+        let scale_x = input_width as f32 / output_width as f32;
 
-        let mut output = vec![vec![0.0; width]; height];
+        let mut output = vec![vec![0.0; output_width]; output_height];
 
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..height {
-            for j in 0..width {
-                let mut sum = 0.;
-                let mut count = 0.;
+        for out_y in 0..output_height {
+            for out_x in 0..output_width {
+                let y0 = (out_y as f32 * scale_y).floor() as usize;
+                let y1 = ((out_y + 1) as f32 * scale_y)
+                    .ceil()
+                    .min(input_height as f32) as usize;
 
-                for dy in 0..scale {
-                    for dx in 0..scale {
-                        let input_i = i * scale + dy;
-                        let input_j = j * scale + dx;
+                let x0 = (out_x as f32 * scale_x).floor() as usize;
+                let x1 = ((out_x + 1) as f32 * scale_x)
+                    .ceil()
+                    .min(input_width as f32) as usize;
 
-                        if input_i < data.len() && input_j < data[0].len() {
-                            let value = data[input_i][input_j];
-                            if value == Self::default() {
-                                continue;
-                            }
+                let mut sum = 0.0;
+                let mut count = 0.0;
 
-                            sum += data[input_i][input_j];
-                            count += 1.;
-                        }
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        sum += data[y][x];
+                        count += 1.0;
                     }
                 }
 
-                output[i][j] = sum / count;
+                output[out_y][out_x] = if count > 0.0 { sum / count } else { 0.0 };
             }
         }
 

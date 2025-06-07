@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use common::{Bounds, TileMetadata, TileResponse};
 use geo::{coord, Coord, Rect};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -54,6 +54,8 @@ pub struct EarthState {
 
     population_buffer_allocator: BufferAllocator,
     population_tile_map: HashMap<(u32, u32, u32), TileResponse<f32>>,
+    lp_tile_map: HashMap<(u32, u32, u32), TileResponse<f32>>,
+    lp_buffer_allocator: BufferAllocator,
     // pub query_poi: QueryPoi,
 }
 
@@ -64,6 +66,10 @@ impl EarthState {
 
     pub fn insert_population_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
         self.population_tile_map.insert(id, data);
+    }
+
+    pub fn insert_lp_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
+        self.lp_tile_map.insert(id, data);
     }
 
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
@@ -99,6 +105,24 @@ impl EarthState {
                 .flat_map(|pixel| pixel.to_ne_bytes())
                 .collect::<Vec<u8>>();
             let metadata = TileMetadata::from((&tile, id.0, 1));
+
+            self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
+        }
+
+        let tiles = std::mem::take(&mut self.lp_tile_map);
+
+        for (id, tile) in tiles.into_iter() {
+            let Some(&slot) = self.lp_buffer_allocator.slot(&id) else {
+                continue;
+            };
+
+            let data = tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flat_map(|pixel| pixel.to_ne_bytes())
+                .collect::<Vec<u8>>();
+            let metadata = TileMetadata::from((&tile, id.0, 2));
 
             self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
         }
@@ -255,13 +279,14 @@ impl EarthState {
                 })
                 .collect();
 
-            BufferAllocator::new(levels, BUFFER_SIZE as usize / 2, 0)
+            BufferAllocator::new(levels, BUFFER_SIZE as usize / 3, 0)
         };
 
         let population_buffer_allocator = {
-            let levels = (0..=8)
+            let levels = (0..=6)
                 .map(|level| {
                     Level::new(
+                        // Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
                         Bounds::new(
                             Coord { x: -180., y: -72. },
                             Coord {
@@ -275,13 +300,32 @@ impl EarthState {
                 })
                 .collect();
 
-            BufferAllocator::new(levels, BUFFER_SIZE as usize / 2, BUFFER_SIZE as usize / 2)
+            BufferAllocator::new(levels, BUFFER_SIZE as usize / 3, BUFFER_SIZE as usize / 3)
+        };
+        let lp_buffer_allocator = {
+            let levels = (0..=7)
+                .map(|level| {
+                    Level::new(
+                        Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                        2_usize.pow(level),
+                        2_usize.pow(level),
+                    )
+                })
+                .collect();
+
+            BufferAllocator::new(
+                levels,
+                BUFFER_SIZE as usize / 3,
+                (BUFFER_SIZE as usize * 2) / 3,
+            )
         };
 
         Self {
             tile_map: HashMap::new(),
             buffer_allocator,
 
+            lp_tile_map: HashMap::new(),
+            lp_buffer_allocator,
             population_tile_map: HashMap::new(),
             population_buffer_allocator,
 
@@ -367,6 +411,11 @@ impl EarthState {
             &fov_intersections,
         );
 
+        let new_lp_allocations = self.lp_buffer_allocator.allocate(
+            self.lp_buffer_allocator.current_level as u32,
+            &fov_intersections,
+        );
+
         let proxy = self.eventloop.clone();
         wasm_bindgen_futures::spawn_local(async move {
             for tile_id in new_allocations {
@@ -411,6 +460,29 @@ impl EarthState {
                 proxy
                     .send_event(CustomEvent::HttpResponse(
                         crate::app::CustomResponseType::PopulationTileResponse(tile, tile_id),
+                    ))
+                    .unwrap();
+            }
+
+            for tile_id in new_lp_allocations {
+                let tile: TileResponse<f32> = bincode::deserialize(
+                    &gloo_net::http::Request::get(&format!(
+                        "/lp_tile/{}/{}/{}",
+                        tile_id.0, tile_id.1, tile_id.2
+                    ))
+                    .cache(web_sys::RequestCache::ForceCache)
+                    .send()
+                    .await
+                    .unwrap()
+                    .binary()
+                    .await
+                    .unwrap(),
+                )
+                .unwrap();
+
+                proxy
+                    .send_event(CustomEvent::HttpResponse(
+                        crate::app::CustomResponseType::LightPollutionTileResponse(tile, tile_id),
                     ))
                     .unwrap();
             }
@@ -527,55 +599,34 @@ fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
     coord! {x:lon,y:lat}
 }
 
-pub fn calculate_camera_earth_view_bounding_box(
+fn calculate_camera_earth_view_bounding_box(
     camera_projection: &Projection,
     camera: &Camera,
     earth_position: Point,
 ) -> Vec<Coord<f32>> {
-    let mut n_rays: usize = 6;
-
+    const N_RAYS: usize = 6;
     let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
     let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
-
-    if (cam_pos - earth_position).length() > 2. {
-        n_rays = 1;
+    let cam_dir = -cam_pos.normalize();
+    let (orth1, orth2) = cam_dir.any_orthonormal_pair();
+    let fov = camera_projection.fovy;
+    let half_fov = fov / 2.0;
+    let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
+    let angle_step = fov / (N_RAYS - 1) as f32;
+    let mut angle_offsets = [0.0f32; N_RAYS];
+    for (i, entry) in angle_offsets.iter_mut().enumerate().take(N_RAYS) {
+        let mut angle_offset = -half_fov + i as f32 * angle_step;
+        std::mem::swap(entry, &mut angle_offset);
     }
-
-    let view_matrix = camera.calc_matrix();
-
-    let inv_view = view_matrix.inverse();
-    let right = inv_view.transform_vector3(Vec3::X).normalize();
-    let up = inv_view.transform_vector3(Vec3::Y).normalize();
-    let forward = inv_view.transform_vector3(Vec3::Z).normalize(); // forward is -Z
-
-    let fov_y = camera_projection.fovy;
-    let aspect = camera_projection.aspect();
-
-    let half_fov_y = fov_y / 2.0;
-    let half_fov_x = (half_fov_y.tan() * aspect).atan();
-
-    let v_step = fov_y / (n_rays - 1) as f32;
-    let h_step = (half_fov_x * 2.0) / (n_rays - 1) as f32;
-
-    let mut surface_points = Vec::with_capacity(n_rays * n_rays);
-
-    for i in 0..n_rays {
-        let v_angle = -half_fov_y + i as f32 * v_step;
-        let sin_v = v_angle.sin();
-        let cos_v = v_angle.cos();
-
-        for j in 0..n_rays {
-            let h_angle = -half_fov_x + j as f32 * h_step;
-            let sin_h = h_angle.sin();
-            let cos_h = h_angle.cos();
-
-            let dir = (forward * cos_v * cos_h + right * sin_h + up * sin_v * cos_h).normalize();
-
-            if let Some(hit) = ray_intersects_sphere(cam_pos, dir, earth_position, 1.0) {
-                surface_points.push(convert_point_on_surface_to_lat_lon(hit));
+    for &angle_v in &angle_offsets {
+        let qv = Quat::from_axis_angle(orth2, angle_v);
+        for &angle_u in &angle_offsets {
+            let qu = Quat::from_axis_angle(orth1, angle_u);
+            let ray_dir = (qu * qv * cam_dir).normalize();
+            if let Some(point) = ray_intersects_sphere(cam_pos, ray_dir, earth_position, 1.0) {
+                surface_points.push(convert_point_on_surface_to_lat_lon(point));
             }
         }
     }
-
     surface_points
 }

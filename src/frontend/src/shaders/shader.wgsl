@@ -49,6 +49,34 @@ struct TileMetadata {
 @group(1) @binding(2) var<uniform> metadata: Metadata;
 
 
+struct SampledTexture{
+    highest_z: u32,
+    sample: vec2<f32>,
+    layer: u32,
+    has_value: bool,
+}
+
+fn sample_f32(sample: SampledTexture)->f32{
+    let sample_rgba= sample_rgba(sample);
+    let first = u32(sample_rgba.r*255.);
+    let second = u32(sample_rgba.g*255.);
+    let third = u32(sample_rgba.b*255.);
+    let fourth = u32(sample_rgba.a*255.);
+
+    let total:u32 = first | (second<<8)| (third<<16)| (fourth<<24);
+
+    return bitcast<f32>(total);
+}
+
+fn sample_rgba(sample: SampledTexture)->vec4<f32>{
+    return textureSample(
+        t_diffuse,
+        s_diffuse,
+        sample.sample,
+        sample.layer
+    );
+}
+
 @fragment
 fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 
@@ -56,17 +84,13 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
     let lat = (asin(-pos.z) / PI)+0.5 ;
 
-    var highest_z_color = u32(0);
-    var highest_z_pop = u32(0);
-    var found_sample_color = false;
-    var found_sample_pop = false;
-    var sample_texture = vec4<f32>(); 
-    var sample_pop = vec2<f32>(); 
-    var pop_layer = i32(0); 
-    var sample_color = vec2<f32>(); 
-    var color_layer = i32(0); 
+    var samples: array<SampledTexture, 3> = array<SampledTexture, 3>(
+        SampledTexture(0u, vec2<f32>(0.0), 0u, false),
+        SampledTexture(0u, vec2<f32>(0.0), 0u, false),
+        SampledTexture(0u, vec2<f32>(0.0), 0u, false),
+    );   
 
-    for (var layer = 0; layer < 256 ; layer++){
+    for (var layer:u32 = 0; layer < 256 ; layer++){
         let metadata = metadata.tiles[layer];
 
         let nw_lat = (metadata.nw_lat + 90.0)  / 180.0;
@@ -85,87 +109,77 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         let scaled_u = u * f32(metadata.width)/256.;
         let scaled_v = v * f32(metadata.height)/256.;
 
-        if metadata.data_type==0{
-            if (highest_z_color <= metadata.level) {
-                found_sample_color = true;
-                highest_z_color = metadata.level;
-                sample_color = vec2<f32>(scaled_u,scaled_v);
-                color_layer=layer;
-            };
-        } else {
-            if (highest_z_pop <= metadata.level) {
-                found_sample_pop = true;
-                highest_z_pop = metadata.level;
-                sample_pop = vec2<f32>(scaled_u,scaled_v);
-                pop_layer=layer;
-            };
+        if (samples[metadata.data_type].highest_z<= metadata.level){
+            samples[metadata.data_type].has_value = true;
+            samples[metadata.data_type].sample = vec2<f32>(scaled_u,scaled_v);
+            samples[metadata.data_type].layer = layer;
         }
-
     }
 
-    if (!found_sample_pop && !found_sample_color){
+    if (!samples[0].has_value){
         discard;
     }
 
 
-    var return_color = vec4<f32>(0.2,0.2,0.2,1.0);
+    var return_color = sample_rgba(samples[0]);
+    
 
-    if found_sample_color{
-            return_color = textureSample(
-                t_diffuse,
-                s_diffuse,
-                sample_color,
-                color_layer
-            );
-        }
+    if (samples[1].has_value){
+        let pop_value = sample_f32(samples[1]);
 
-    if found_sample_pop{
-            let sample_rgba = textureSample(
-                t_diffuse,
-                s_diffuse,
-                sample_pop,
-                pop_layer
-            );
+        let pop_color = sample_gradient(pop_value,1000000.,1);
 
-            let first = u32(sample_rgba.r*255.);
-            let second = u32(sample_rgba.g*255.);
-            let third = u32(sample_rgba.b*255.);
-            let fourth = u32(sample_rgba.a*255.);
-
-            let total:u32 = first | (second<<8)| (third<<16)| (fourth<<24);
-
-            // let v: u32 = pack4x8unorm(sample_rgba);
-
-            // let v : f32 = textureLoad(t_diffuse, vec2<i32>(x, y), layer, mip = 0).r;
-
-            var population_value = bitcast<f32>(total);
-            if population_value>0.{
-
-                population_value = 1.+population_value/1000.;
-                return_color= return_color*population_value;
-            }
-            // let population_value = 1.;
-
+        return_color=return_color*0.01+pop_color;
     }
 
+    if (samples[2].has_value){
+        let lp_value = sample_f32(samples[1]);
+
+        let lp_color = sample_gradient(lp_value,400000.,2);
+
+        return_color=return_color+lp_color;
+    }
 
     return return_color;
 }
 
 
+fn sample_gradient(i: f32, max_value:f32, gradient_index: u32)-> vec4<f32>{
 
-// @fragment
-// fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
-//     const PI: f32 = 3.14159265358979323846264338327950288;
+    const grad_1 = array<vec4<f32>, 2>(
+        vec4<f32>(0., 0., 0.,0.),
+        vec4<f32>(0., 0.4, 1.,1.) 
+    );
+    const grad_2 = array<vec4<f32>, 2>(
+        vec4<f32>(0., 0., 0.,0.),
+        vec4<f32>(1., 0.65, 0.,1.) 
+    );
 
-//     let pos = normalize(in.pos);
-//     let u = atan2(pos.x, -pos.y) / (2. * PI) + 0.5;
-//     let v = asin(pos.z)/PI  + 0.5;
+    var gradient: array<vec4<f32>,2 >;
+    if (gradient_index == 1u) {
+        gradient = grad_1;
+    } else {
+        gradient = grad_2;
+    }
 
-//     return vec4<f32>(u, v, 0.0, 1.0); // Debug color based on lon/lat
-    // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), 0);
-    // return vec4<f32>(in.pos, 1.0);
-// }
+
+
+    const n_colors = 4.;
+
+    let sample_location = (i/max_value)*(n_colors-1.);
+    let index = u32(sample_location);
+    let mix_val = fract(sample_location);
+
+    let c1 = gradient[index];
+    let c2 = gradient[index + 1];
+
+    return mix(c1,c2,mix_val);
+}
+
+
+
+
+
 
 @fragment
 fn fs_wireframe(in: VertexOutput) -> @location(0) vec4<f32> {

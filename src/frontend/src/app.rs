@@ -21,6 +21,7 @@ pub enum CustomEvent {
 pub enum CustomResponseType {
     TileResponse(TileResponse<[u8; 4]>, (u32, u32, u32)),
     PopulationTileResponse(TileResponse<f32>, (u32, u32, u32)),
+    LightPollutionTileResponse(TileResponse<f32>, (u32, u32, u32)),
 }
 
 pub struct App {
@@ -168,6 +169,14 @@ impl ApplicationHandler<CustomEvent> for App {
             ) => {
                 state.earth_state.update_tile_buffer = true;
                 state.earth_state.insert_population_tile(id, tile);
+                state.window.request_redraw();
+            }
+            (
+                CustomEvent::HttpResponse(CustomResponseType::LightPollutionTileResponse(tile, id)),
+                Some(state),
+            ) => {
+                state.earth_state.update_tile_buffer = true;
+                state.earth_state.insert_lp_tile(id, tile);
                 state.window.request_redraw();
             }
             _ => {}

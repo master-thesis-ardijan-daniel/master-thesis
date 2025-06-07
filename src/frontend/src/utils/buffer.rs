@@ -90,7 +90,7 @@ impl BufferAllocator {
             .filter(|(z, _, _)| (*z as usize) < self.current_level)
             .collect::<HashSet<_>>();
 
-        if visible.len() < 5 {
+        if visible.len() < 7 {
             self.current_level = (self.current_level + 1).min(self.levels.len().saturating_sub(1));
         }
 
