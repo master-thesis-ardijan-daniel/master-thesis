@@ -5,8 +5,8 @@ use tree::{TileData, TileNode};
 
 use crate::Bounds;
 
-mod iterators;
-mod reader;
+pub mod iterators;
+pub mod reader;
 mod tree;
 
 pub use tree::GeoTree;
