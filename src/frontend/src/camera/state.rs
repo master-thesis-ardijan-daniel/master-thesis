@@ -26,7 +26,7 @@ impl CameraState {
                 Projection::new(size.width, size.height, 45.0_f32.to_radians(), 0.0001, 100.);
             let camera = Camera::new(2.);
 
-            CameraController::new(1., 0.65, 1.2, 50., 1., projection, camera)
+            CameraController::new(1., 0.65, 1.1, 50., 1., projection, camera)
         };
 
         let buffer = device.create_buffer_init(&BufferInitDescriptor {

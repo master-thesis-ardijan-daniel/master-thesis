@@ -124,20 +124,20 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     var return_color = sample_rgba(samples[0]);
     
 
-    if (samples[1].has_value){
-        let pop_value = sample_f32(samples[1]);
+    // if (samples[1].has_value){
+    //     let pop_value = sample_f32(samples[1]);
 
-        let pop_color = sample_gradient(pop_value,1000000.,1);
+    //     let pop_color = sample_gradient(pop_value,1000000.,1);
 
-        return_color=return_color*0.01+pop_color;
-    }
+    //     return_color=return_color*0.01+pop_color;
+    // }
 
     if (samples[2].has_value){
-        let lp_value = sample_f32(samples[1]);
+        let lp_value = sample_f32(samples[2]);
 
-        let lp_color = sample_gradient(lp_value,400000.,2);
+        let lp_color = sample_gradient(lp_value,30.,2);
 
-        return_color=return_color+lp_color;
+        return_color=return_color*0.1+lp_color;
     }
 
     return return_color;
@@ -146,16 +146,20 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 
 fn sample_gradient(i: f32, max_value:f32, gradient_index: u32)-> vec4<f32>{
 
-    const grad_1 = array<vec4<f32>, 2>(
+    const grad_1 = array<vec4<f32>, 4>(
         vec4<f32>(0., 0., 0.,0.),
+        vec4<f32>(0., 0.4, 1.,1.), 
+        vec4<f32>(0., 0.4, 1.,1.), 
         vec4<f32>(0., 0.4, 1.,1.) 
     );
-    const grad_2 = array<vec4<f32>, 2>(
+    const grad_2 = array<vec4<f32>, 4>(
         vec4<f32>(0., 0., 0.,0.),
-        vec4<f32>(1., 0.65, 0.,1.) 
+        vec4<f32>(0.7, 0.7, 0.2,1.), 
+        vec4<f32>(1., 0.65, 0.3,1.), 
+        vec4<f32>(1., 1.0, 1.,1.) 
     );
 
-    var gradient: array<vec4<f32>,2 >;
+    var gradient: array<vec4<f32>, 4>;
     if (gradient_index == 1u) {
         gradient = grad_1;
     } else {
