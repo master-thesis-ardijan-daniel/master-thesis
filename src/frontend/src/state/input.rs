@@ -87,6 +87,21 @@ impl State {
                 }
             }
 
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state,
+                        physical_key: PhysicalKey::Code(KeyCode::KeyL),
+                        ..
+                    },
+                ..
+            } => {
+                if state.is_pressed() {
+                    self.earth_state
+                        .set_render_lp_map(!self.earth_state.render_lp_map, &self.queue);
+                    self.window.request_redraw();
+                }
+            }
             _ => {}
         }
     }

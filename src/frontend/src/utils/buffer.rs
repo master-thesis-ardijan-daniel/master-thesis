@@ -47,21 +47,30 @@ pub struct BufferAllocator {
 
     marked: VecDeque<(u32, u32, u32)>,
     free: VecDeque<BufferSlot>,
+    reset_free: VecDeque<BufferSlot>,
 }
 
 impl BufferAllocator {
     pub fn new(levels: Vec<Level>, slots: usize, offset: usize) -> Self {
-        let free = (offset..slots + offset).map(BufferSlot).collect();
+        let free: VecDeque<BufferSlot> = (offset..slots + offset).map(BufferSlot).collect();
 
         Self {
             levels,
             current_level: 0,
 
             visible: HashSet::new(),
-            free,
+            free: free.clone(),
+            reset_free: free,
             marked: VecDeque::new(),
             allocated: HashMap::new(),
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.visible = HashSet::new();
+        self.allocated = HashMap::new();
+        self.marked = VecDeque::new();
+        self.free = self.reset_free.clone();
     }
 
     pub fn allocate(&mut self, zoom: u32, points: &[Coord<f32>]) -> Vec<(u32, u32, u32)> {

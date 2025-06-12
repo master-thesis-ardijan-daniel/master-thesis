@@ -51,6 +51,7 @@ struct TileMetadata {
 @group(1) @binding(3) var s2_diffuse: sampler;
 @group(1) @binding(4) var<uniform> metadata: Metadata;
 @group(1) @binding(5) var<uniform> metadata_2: Metadata;
+@group(1) @binding(6) var<uniform> shader_mode: vec4<u32>;
 
 
 struct SampledTexture{
@@ -132,6 +133,8 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
     let lat = (asin(-pos.z) / PI)+0.5 ;
 
+    let should_render_lp = shader_mode[0]==1;
+
     var samples: array<SampledTexture, 2> = array<SampledTexture, 2>(
         SampledTexture(0u, vec2<f32>(0.0), 0u, false),
         SampledTexture(0u, vec2<f32>(0.0), 0u, false),
@@ -152,7 +155,7 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
 
-        if tile_2_intersects{
+        if tile_2_intersects && should_render_lp {
             if (samples[1].highest_z<= metadata_2.level){
                 samples[1].has_value = true;
                 samples[1].sample = calc_uv(lat,lon,metadata_2);
@@ -161,12 +164,12 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    if (!samples[1].has_value){
+    if (!samples[0].has_value){
         discard;
     }
 
 
-    // var return_color = sample_rgba(samples[0]);
+    var return_color = sample_rgba(samples[0]);
     
 
     // if (samples[1].has_value){
@@ -177,20 +180,13 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     //     return_color=return_color*0.01+pop_color;
     // }
 
-    // if (samples[1].has_value){
-        // let lp_value = sample_2_f32(samples[1]);
+    if (samples[1].has_value){
+        let lp_value = sample_2_f32(samples[1]);
 
-        // let lp_color = sample_gradient(lp_value,30.,2);
+        let lp_color = sample_gradient(lp_value,30.,2);
 
-        // return_color=return_color*0.1+lp_value;
-    let return_color= textureSample(
-        t2_diffuse,
-        s2_diffuse,
-        samples[1].sample,
-        samples[1].layer
-    );
-
-    // }
+        return_color=return_color*0.03+lp_color;
+    }
 
     return return_color;
 }
@@ -198,20 +194,18 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 
 fn sample_gradient(i: f32, max_value:f32, gradient_index: u32)-> vec4<f32>{
 
-    const grad_1 = array<vec4<f32>, 4>(
+    const grad_1 = array<vec4<f32>, 3>(
         vec4<f32>(0., 0., 0.,0.),
-        vec4<f32>(0., 0.4, 1.,1.), 
         vec4<f32>(0., 0.4, 1.,1.), 
         vec4<f32>(0., 0.4, 1.,1.) 
     );
-    const grad_2 = array<vec4<f32>, 4>(
+    const grad_2 = array<vec4<f32>, 3>(
         vec4<f32>(0., 0., 0.,0.),
         vec4<f32>(0.7, 0.7, 0.2,1.), 
-        vec4<f32>(1., 0.65, 0.3,1.), 
         vec4<f32>(1., 1.0, 1.,1.) 
     );
 
-    var gradient: array<vec4<f32>, 4>;
+    var gradient: array<vec4<f32>, 3>;
     if (gradient_index == 1u) {
         gradient = grad_1;
     } else {

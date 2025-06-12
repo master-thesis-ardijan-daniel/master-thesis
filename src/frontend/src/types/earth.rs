@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use web_time::Instant;
+
 use common::{Bounds, TileMetadata, TileResponse};
 use geo::{coord, Coord, Rect};
 use glam::{Quat, Vec3};
@@ -57,6 +59,10 @@ pub struct EarthState {
     lp_buffer_allocator: BufferAllocator,
     texture_buffer_2: wgpu::Texture,
     tile_metadata_buffer_2: Buffer,
+    last_buffer_write: Instant,
+    pub render_lp_map: bool,
+    shader_mode_uniform: Buffer,
+    shader_mode: u32,
     // pub query_poi: QueryPoi,
 }
 
@@ -74,6 +80,11 @@ impl EarthState {
     }
 
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
+        if self.last_buffer_write.elapsed().as_millis() < 10 {
+            return;
+        }
+
+        self.update_tile_buffer = false;
         let tiles = std::mem::take(&mut self.tile_map);
 
         for (id, tile) in tiles.into_iter() {
@@ -137,11 +148,10 @@ impl EarthState {
         queue: &Queue,
     ) {
         // let metadata = TileMetadata::from((&new_tile, id.0));
-        let (texture_buffer, tile_metadata_buffer) = if metadata.data_type == 0 {
+        let (texture_buffer, tile_metadata_buffer) = if metadata.data_type == 2 {
             (&self.texture_buffer_2, &self.tile_metadata_buffer_2)
         } else {
-            return;
-            // (&self.texture_buffer, &self.tile_metadata_buffer)
+            (&self.texture_buffer, &self.tile_metadata_buffer)
         };
         queue.write_texture(
             TexelCopyTextureInfo {
@@ -191,6 +201,13 @@ impl EarthState {
             mapped_at_creation: false,
         });
 
+        let shader_mode_uniform = device.create_buffer(&BufferDescriptor {
+            label: Some("shader mode"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            size: size_of::<[u32; 4]>() as u64 * 4,
+            mapped_at_creation: false,
+        });
+
         let texture_size = wgpu::Extent3d {
             width: TEXTURE_WIDTH,
             height: TEXTURE_HEIGHT,
@@ -219,7 +236,7 @@ impl EarthState {
         });
 
         let texture_buffer_2 = device.create_texture(&TextureDescriptor {
-            label: Some("earth_texture_buffer_2"),
+            label: Some("earth_texture_buffer"),
             size: texture_size,
             mip_level_count: 1,
             sample_count: 1,
@@ -229,7 +246,8 @@ impl EarthState {
             view_formats: &[],
         });
 
-        let diffuse_texture_view_2 = texture_buffer.create_view(&TextureViewDescriptor::default());
+        let diffuse_texture_view_2 =
+            texture_buffer_2.create_view(&TextureViewDescriptor::default());
         let diffuse_sampler_2 = device.create_sampler(&SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -239,6 +257,7 @@ impl EarthState {
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
+
         // Initializing empty buffers is fine,
         // since we initialize new ones on update
         let vertex_buffer = device.create_buffer(&BufferDescriptor {
@@ -311,6 +330,16 @@ impl EarthState {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -341,6 +370,10 @@ impl EarthState {
                 BindGroupEntry {
                     binding: 5,
                     resource: tile_metadata_buffer_2.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: shader_mode_uniform.as_entire_binding(),
                 },
             ],
         });
@@ -419,6 +452,10 @@ impl EarthState {
             texture_buffer_2,
             tile_metadata_buffer,
             tile_metadata_buffer_2,
+            render_lp_map: false,
+            last_buffer_write: web_time::Instant::now(),
+            shader_mode_uniform,
+            shader_mode: 0,
             // query_poi: QueryPoi::new(&device),
         }
     }
@@ -433,6 +470,29 @@ impl EarthState {
                 format: VertexFormat::Float32x3,
             }],
         }
+    }
+
+    pub fn set_render_lp_map(&mut self, render_lp_map: bool, queue: &Queue) {
+        self.render_lp_map = render_lp_map;
+        self.lp_buffer_allocator.reset();
+        self.lp_tile_map = HashMap::new();
+        self.update_tile_buffer = true;
+        if self.render_lp_map {
+            self.shader_mode = 1;
+        } else {
+            self.shader_mode = 0;
+        }
+
+        queue.write_buffer(
+            &self.shader_mode_uniform,
+            0,
+            bytemuck::bytes_of(&[
+                self.shader_mode,
+                self.shader_mode,
+                self.shader_mode,
+                self.shader_mode,
+            ]),
+        );
     }
 
     pub fn set_subdivision_level(&mut self, level: usize) {
@@ -455,7 +515,15 @@ impl EarthState {
                 ),
             };
 
-            // self.write_a_single_tile_to_buffer((0, 0, 0), tile, BufferSlot(i), queue);
+            let data = tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect::<Vec<u8>>();
+
+            let metadata = TileMetadata::from((&tile, 0, 0));
+            self.write_a_single_tile_to_buffer(&data, metadata, BufferSlot(i), queue);
             // #[cfg(feature = "debug")]
             // log::warn!("tile bounds! {:#?}", tile.bounds,);
         }
@@ -489,6 +557,8 @@ impl EarthState {
             self.lp_buffer_allocator.current_level as u32,
             &fov_intersections,
         );
+
+        let should_fetch_lp_tiles = self.render_lp_map;
 
         let proxy = self.eventloop.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -537,6 +607,10 @@ impl EarthState {
             //         ))
             //         .unwrap();
             // }
+            //
+            if !should_fetch_lp_tiles {
+                return;
+            }
 
             for tile_id in new_lp_allocations {
                 let tile: TileResponse<f32> = bincode::deserialize(
@@ -566,7 +640,6 @@ impl EarthState {
     pub fn update(&mut self, queue: &Queue, device: &Device) {
         if self.update_tile_buffer {
             self.rewrite_tiles(queue);
-            self.update_tile_buffer = false;
         }
 
         if self.current_subdivision_level == self.previous_subdivision_level
@@ -683,15 +756,19 @@ fn calculate_camera_earth_view_bounding_box(
     let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
     let cam_dir = -cam_pos.normalize();
     let (orth1, orth2) = cam_dir.any_orthonormal_pair();
+
     let fov = camera_projection.fovy;
     let half_fov = fov / 2.0;
+
     let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
     let angle_step = fov / (N_RAYS - 1) as f32;
+
     let mut angle_offsets = [0.0f32; N_RAYS];
     for (i, entry) in angle_offsets.iter_mut().enumerate().take(N_RAYS) {
         let mut angle_offset = -half_fov + i as f32 * angle_step;
         std::mem::swap(entry, &mut angle_offset);
     }
+
     for &angle_v in &angle_offsets {
         let qv = Quat::from_axis_angle(orth2, angle_v);
         for &angle_u in &angle_offsets {
@@ -702,5 +779,6 @@ fn calculate_camera_earth_view_bounding_box(
             }
         }
     }
+
     surface_points
 }
