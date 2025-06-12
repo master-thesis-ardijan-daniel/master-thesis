@@ -44,9 +44,13 @@ struct TileMetadata {
     data_type: u32,
 }
 
+
 @group(1) @binding(0) var t_diffuse: texture_2d_array<f32>; 
 @group(1) @binding(1) var s_diffuse: sampler;
-@group(1) @binding(2) var<uniform> metadata: Metadata;
+@group(1) @binding(2) var t2_diffuse: texture_2d_array<f32>; 
+@group(1) @binding(3) var s2_diffuse: sampler;
+@group(1) @binding(4) var<uniform> metadata: Metadata;
+@group(1) @binding(5) var<uniform> metadata_2: Metadata;
 
 
 struct SampledTexture{
@@ -56,12 +60,11 @@ struct SampledTexture{
     has_value: bool,
 }
 
-fn sample_f32(sample: SampledTexture)->f32{
-    let sample_rgba= sample_rgba(sample);
-    let first = u32(sample_rgba.r*255.);
-    let second = u32(sample_rgba.g*255.);
-    let third = u32(sample_rgba.b*255.);
-    let fourth = u32(sample_rgba.a*255.);
+fn rgba_to_f32(rgba: vec4<f32>)->f32{
+    let first = u32(rgba.r*255.);
+    let second = u32(rgba.g*255.);
+    let third = u32(rgba.b*255.);
+    let fourth = u32(rgba.a*255.);
 
     let total:u32 = first | (second<<8)| (third<<16)| (fourth<<24);
 
@@ -77,6 +80,51 @@ fn sample_rgba(sample: SampledTexture)->vec4<f32>{
     );
 }
 
+fn sample_2_f32(sample: SampledTexture)->f32{
+    let rgba= textureSample(
+        t2_diffuse,
+        s2_diffuse,
+        sample.sample,
+        sample.layer
+    );
+
+    return rgba_to_f32(rgba);
+}
+
+fn tile_normalized(tile:TileMetadata)-> TileMetadata{
+        let nw_lat = (tile.nw_lat + 90.0)  / 180.0;
+        let nw_lon = (tile.nw_lon + 180.0) / 360.0;
+        let se_lat = (tile.se_lat + 90.0)  / 180.0;
+        let se_lon = (tile.se_lon + 180.0) / 360.0;
+
+        return TileMetadata(
+            nw_lat,
+            nw_lon,
+            se_lat,
+            se_lon,
+            tile.width,
+            tile.height,
+            tile.level,
+            tile.data_type,
+        );
+
+}
+
+fn intersects_with_tile(lat:f32, lon:f32, tile:TileMetadata)->bool{
+    return !(lat > tile.nw_lat || lat < tile.se_lat || lon < tile.nw_lon || lon > tile.se_lon);
+}
+
+fn calc_uv(lat:f32, lon:f32, tile:TileMetadata)->vec2<f32>{
+    let u = (lon - tile.nw_lon) / (tile.se_lon - tile.nw_lon);
+    let v = 1.-(lat - tile.se_lat) / (tile.nw_lat - tile.se_lat);
+
+
+    let scaled_u = u * f32(tile.width)/256.;
+    let scaled_v = v * f32(tile.height)/256.;
+    return vec2<f32>(scaled_u,scaled_v);
+}
+
+
 @fragment
 fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 
@@ -84,44 +132,41 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
     let lat = (asin(-pos.z) / PI)+0.5 ;
 
-    var samples: array<SampledTexture, 3> = array<SampledTexture, 3>(
-        SampledTexture(0u, vec2<f32>(0.0), 0u, false),
+    var samples: array<SampledTexture, 2> = array<SampledTexture, 2>(
         SampledTexture(0u, vec2<f32>(0.0), 0u, false),
         SampledTexture(0u, vec2<f32>(0.0), 0u, false),
     );   
 
     for (var layer:u32 = 0; layer < 256 ; layer++){
-        let metadata = metadata.tiles[layer];
+        let metadata = tile_normalized(metadata.tiles[layer]);
+        let metadata_2 = tile_normalized(metadata_2.tiles[layer]);
 
-        let nw_lat = (metadata.nw_lat + 90.0)  / 180.0;
-        let nw_lon = (metadata.nw_lon + 180.0) / 360.0;
-        let se_lat = (metadata.se_lat + 90.0)  / 180.0;
-        let se_lon = (metadata.se_lon + 180.0) / 360.0;
+        let tile_intersects = intersects_with_tile(lat,lon,metadata);
+        let tile_2_intersects = intersects_with_tile(lat,lon,metadata_2);
 
-        if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
-            continue;
+        if tile_intersects{
+            if (samples[0].highest_z<= metadata.level){
+                samples[0].has_value = true;
+                samples[0].sample = calc_uv(lat,lon,metadata);
+                samples[0].layer = layer;
+            }
         }
 
-        let u = (lon - nw_lon) / (se_lon - nw_lon);
-        let v = 1.-(lat - se_lat) / (nw_lat - se_lat);
-
-
-        let scaled_u = u * f32(metadata.width)/256.;
-        let scaled_v = v * f32(metadata.height)/256.;
-
-        if (samples[metadata.data_type].highest_z<= metadata.level){
-            samples[metadata.data_type].has_value = true;
-            samples[metadata.data_type].sample = vec2<f32>(scaled_u,scaled_v);
-            samples[metadata.data_type].layer = layer;
+        if tile_2_intersects{
+            if (samples[1].highest_z<= metadata_2.level){
+                samples[1].has_value = true;
+                samples[1].sample = calc_uv(lat,lon,metadata_2);
+                samples[1].layer = layer;
+            }
         }
     }
 
-    if (!samples[0].has_value){
+    if (!samples[1].has_value){
         discard;
     }
 
 
-    var return_color = sample_rgba(samples[0]);
+    // var return_color = sample_rgba(samples[0]);
     
 
     // if (samples[1].has_value){
@@ -132,13 +177,20 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     //     return_color=return_color*0.01+pop_color;
     // }
 
-    if (samples[2].has_value){
-        let lp_value = sample_f32(samples[2]);
+    // if (samples[1].has_value){
+        // let lp_value = sample_2_f32(samples[1]);
 
-        let lp_color = sample_gradient(lp_value,30.,2);
+        // let lp_color = sample_gradient(lp_value,30.,2);
 
-        return_color=return_color*0.1+lp_color;
-    }
+        // return_color=return_color*0.1+lp_value;
+    let return_color= textureSample(
+        t2_diffuse,
+        s2_diffuse,
+        samples[1].sample,
+        samples[1].layer
+    );
+
+    // }
 
     return return_color;
 }

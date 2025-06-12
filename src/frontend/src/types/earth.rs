@@ -51,11 +51,12 @@ pub struct EarthState {
 
     buffer_allocator: BufferAllocator,
     tile_map: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
-
     // population_buffer_allocator: BufferAllocator,
     // population_tile_map: HashMap<(u32, u32, u32), TileResponse<f32>>,
     lp_tile_map: HashMap<(u32, u32, u32), TileResponse<f32>>,
     lp_buffer_allocator: BufferAllocator,
+    texture_buffer_2: wgpu::Texture,
+    tile_metadata_buffer_2: Buffer,
     // pub query_poi: QueryPoi,
 }
 
@@ -135,9 +136,16 @@ impl EarthState {
         slot: BufferSlot,
         queue: &Queue,
     ) {
+        // let metadata = TileMetadata::from((&new_tile, id.0));
+        let (texture_buffer, tile_metadata_buffer) = if metadata.data_type == 0 {
+            (&self.texture_buffer_2, &self.tile_metadata_buffer_2)
+        } else {
+            return;
+            // (&self.texture_buffer, &self.tile_metadata_buffer)
+        };
         queue.write_texture(
             TexelCopyTextureInfo {
-                texture: &self.texture_buffer,
+                texture: texture_buffer,
                 mip_level: 0,
                 origin: Origin3d {
                     x: 0,
@@ -160,7 +168,7 @@ impl EarthState {
         );
 
         queue.write_buffer(
-            &self.tile_metadata_buffer,
+            tile_metadata_buffer,
             ({ *slot } * size_of::<TileMetadata>()) as u64,
             bytemuck::bytes_of(&metadata),
         );
@@ -170,6 +178,13 @@ impl EarthState {
         let icosphere = Icosphere::new(1., Point::ZERO, 6, 0, icosahedron_to_wgs84);
 
         let tile_metadata_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("tile_metadata_buffer"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            size: size_of::<TileMetadata>() as u64 * BUFFER_SIZE as u64,
+            mapped_at_creation: false,
+        });
+
+        let tile_metadata_buffer_2 = device.create_buffer(&BufferDescriptor {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             size: size_of::<TileMetadata>() as u64 * BUFFER_SIZE as u64,
@@ -197,9 +212,33 @@ impl EarthState {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
+        let texture_buffer_2 = device.create_texture(&TextureDescriptor {
+            label: Some("earth_texture_buffer_2"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let diffuse_texture_view_2 = texture_buffer.create_view(&TextureViewDescriptor::default());
+        let diffuse_sampler_2 = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
         // Initializing empty buffers is fine,
         // since we initialize new ones on update
         let vertex_buffer = device.create_buffer(&BufferDescriptor {
@@ -239,6 +278,32 @@ impl EarthState {
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
@@ -263,7 +328,19 @@ impl EarthState {
                 },
                 BindGroupEntry {
                     binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view_2),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler_2),
+                },
+                BindGroupEntry {
+                    binding: 4,
                     resource: tile_metadata_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: tile_metadata_buffer_2.as_entire_binding(),
                 },
             ],
         });
@@ -279,7 +356,7 @@ impl EarthState {
                 })
                 .collect();
 
-            BufferAllocator::new(levels, BUFFER_SIZE as usize / 3, 0)
+            BufferAllocator::new(levels, BUFFER_SIZE as usize, 0)
         };
 
         // let population_buffer_allocator = {
@@ -313,7 +390,7 @@ impl EarthState {
                 })
                 .collect();
 
-            BufferAllocator::new(levels, BUFFER_SIZE as usize / 2, BUFFER_SIZE as usize / 2)
+            BufferAllocator::new(levels, BUFFER_SIZE as usize, 0)
         };
 
         Self {
@@ -339,7 +416,9 @@ impl EarthState {
             num_indices: 0,
             texture_buffer,
             texture_bind_group,
+            texture_buffer_2,
             tile_metadata_buffer,
+            tile_metadata_buffer_2,
             // query_poi: QueryPoi::new(&device),
         }
     }

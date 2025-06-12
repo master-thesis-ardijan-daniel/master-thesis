@@ -163,14 +163,14 @@ impl ApplicationHandler<CustomEvent> for App {
                 state.earth_state.insert_tile(id, tile);
                 state.window.request_redraw();
             }
-            (
-                CustomEvent::HttpResponse(CustomResponseType::PopulationTileResponse(tile, id)),
-                Some(state),
-            ) => {
-                state.earth_state.update_tile_buffer = true;
-                state.earth_state.insert_population_tile(id, tile);
-                state.window.request_redraw();
-            }
+            // (
+            //     CustomEvent::HttpResponse(CustomResponseType::PopulationTileResponse(tile, id)),
+            //     Some(state),
+            // ) => {
+            //     state.earth_state.update_tile_buffer = true;
+            //     state.earth_state.insert_population_tile(id, tile);
+            //     state.window.request_redraw();
+            // }
             (
                 CustomEvent::HttpResponse(CustomResponseType::LightPollutionTileResponse(tile, id)),
                 Some(state),

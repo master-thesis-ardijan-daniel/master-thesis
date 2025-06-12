@@ -49,16 +49,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(initialize_tree("earth_map.db", dataset)?)
     };
 
-    let population_tree = {
-        let key = "POPULATION_DATASET";
-        let dataset = || {
-            PopulationDataset::new(
-                std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
-            )
-        };
+    // let population_tree = {
+    //     let key = "POPULATION_DATASET";
+    //     let dataset = || {
+    //         PopulationDataset::new(
+    //             std::env::var(key).unwrap_or_else(|_| panic!("{key} environment variable")),
+    //         )
+    //     };
 
-        Arc::new(initialize_tree("population.db", dataset)?)
-    };
+    //     Arc::new(initialize_tree("population.db", dataset)?)
+    // };
 
     let light_pollution_tree = {
         let key = "LIGHT_POLLUTION_DATASET";
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = BackendState {
         earth_map_tree,
-        population_tree,
+        // population_tree,
         light_pollution_tree,
     };
 
@@ -86,9 +86,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/tiles", get(get_tiles))
         .route("/tile/{z}/{y}/{x}", get(get_tile))
         .route("/lp_tile/{z}/{y}/{x}", get(get_lp_tile))
-        .route("/pop_tile/{z}/{y}/{x}", get(get_pop_tile))
+        // .route("/pop_tile/{z}/{y}/{x}", get(get_pop_tile))
         .route("/aggregate/lp", post(post_lp_aggregate))
-        .route("/aggregate/pop", post(post_pop_aggregate))
+        // .route("/aggregate/pop", post(post_pop_aggregate))
         .with_state(state);
 
     println!("Listening on {}:{}", addr.ip(), addr.port());
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Clone)]
 struct BackendState {
     earth_map_tree: Arc<GeoTree<EarthmapDataset>>,
-    population_tree: Arc<GeoTree<PopulationDataset>>,
+    // population_tree: Arc<GeoTree<PopulationDataset>>,
     light_pollution_tree: Arc<GeoTree<LightPollutionDataset>>,
 }
 
@@ -126,21 +126,21 @@ struct TileQuery {
     z: usize,
 }
 
-async fn get_pop_tile(
-    Path(TileQuery { x, y, z }): Path<TileQuery>,
-    State(state): State<BackendState>,
-) -> impl IntoResponse {
-    let data: Vec<u8> =
-        bincode::serialize(&state.population_tree.get_tile(x, y, z).unwrap()).unwrap();
+// async fn get_pop_tile(
+//     Path(TileQuery { x, y, z }): Path<TileQuery>,
+//     State(state): State<BackendState>,
+// ) -> impl IntoResponse {
+//     let data: Vec<u8> =
+//         bincode::serialize(&state.population_tree.get_tile(x, y, z).unwrap()).unwrap();
 
-    Response::builder()
-        .header(
-            "Cache-Control",
-            HeaderValue::from_static("public, max-age=31536000, immutable"),
-        )
-        .body(Body::from(data))
-        .unwrap()
-}
+//     Response::builder()
+//         .header(
+//             "Cache-Control",
+//             HeaderValue::from_static("public, max-age=31536000, immutable"),
+//         )
+//         .body(Body::from(data))
+//         .unwrap()
+// }
 
 async fn get_lp_tile(
     Path(TileQuery { x, y, z }): Path<TileQuery>,
@@ -174,14 +174,14 @@ async fn get_tile(
         .unwrap()
 }
 
-async fn post_pop_aggregate(
-    State(state): State<BackendState>,
-    Json(query): Json<Polygon<f32>>,
-) -> impl IntoResponse {
-    let aggregate = state.population_tree.get_aggregate(query);
+// async fn post_pop_aggregate(
+//     State(state): State<BackendState>,
+//     Json(query): Json<Polygon<f32>>,
+// ) -> impl IntoResponse {
+//     let aggregate = state.population_tree.get_aggregate(query);
 
-    Json(aggregate)
-}
+//     Json(aggregate)
+// }
 
 async fn post_lp_aggregate(
     State(state): State<BackendState>,
