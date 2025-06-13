@@ -90,12 +90,11 @@ impl Camera {
         }
 
         let axis = axis.normalize();
-        let angle = v2.dot(v1).acos();
+        let angle = v2.dot(v1).clamp(-1., 1.).acos();
 
         let screen_radius = projection.size.min_element() / 2.0;
         let scaling_ratio = object_screen_radius / screen_radius;
 
-        // let (sensitivity, scaling_ratio) = (1., 2.);
 
         let rotation = Quat::from_axis_angle(axis, sensitivity * angle / scaling_ratio).normalize();
 
