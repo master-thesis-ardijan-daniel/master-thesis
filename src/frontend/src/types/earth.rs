@@ -71,9 +71,9 @@ impl EarthState {
         self.tile_map.insert(id, data);
     }
 
-    pub fn insert_population_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
-        // self.population_tile_map.insert(id, data);
-    }
+    // pub fn insert_population_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
+    // self.population_tile_map.insert(id, data);
+    // }
 
     pub fn insert_lp_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
         self.lp_tile_map.insert(id, data);
@@ -582,7 +582,7 @@ impl EarthState {
 
                 proxy
                     .send_event(CustomEvent::HttpResponse(
-                        crate::app::CustomResponseType::TileResponse(tile, tile_id),
+                        crate::app::CustomResponseType::SatelliteImage(tile, tile_id),
                     ))
                     .unwrap();
             }
@@ -632,7 +632,7 @@ impl EarthState {
 
                 proxy
                     .send_event(CustomEvent::HttpResponse(
-                        crate::app::CustomResponseType::LightPollutionTileResponse(tile, tile_id),
+                        crate::app::CustomResponseType::LightPollution(tile, tile_id),
                     ))
                     .unwrap();
             }

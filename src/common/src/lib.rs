@@ -65,7 +65,7 @@ impl<T> From<(&TileResponse<T>, u32, u32)> for TileMetadata {
             width: tile.data[0].len() as u32,
             height: tile.data.len() as u32,
             level,
-            data_type: data_type,
+            data_type,
         }
     }
 }

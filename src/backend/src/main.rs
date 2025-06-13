@@ -193,8 +193,8 @@ async fn post_lp_aggregate(
 }
 
 fn write_to_image() {
-    use backend::flatten;
-    use image::{buffer::Rows, ImageBuffer, Luma};
+    
+    use image::{ImageBuffer, Luma};
 
     let population_tree = {
         let key = "POPULATION_DATASET";

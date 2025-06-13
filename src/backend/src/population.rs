@@ -1,7 +1,4 @@
-use std::cmp::max;
-
 use crate::{Bounds, Dataset, Tile};
-use gdal::raster::GrayEntry;
 use geo::Coord;
 
 pub struct PopulationDataset {
@@ -54,6 +51,7 @@ impl Dataset for PopulationDataset {
 
         let mut output = vec![vec![0.0; output_width]; output_height];
 
+        #[allow(clippy::needless_range_loop)]
         for out_y in 0..output_height {
             for out_x in 0..output_width {
                 let y0 = (out_y as f32 * scale_y).floor() as usize;
