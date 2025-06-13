@@ -84,6 +84,8 @@ impl EarthState {
             return;
         }
 
+        self.last_buffer_write = Instant::now();
+
         self.update_tile_buffer = false;
         let tiles = std::mem::take(&mut self.tile_map);
 
