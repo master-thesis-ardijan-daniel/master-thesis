@@ -192,8 +192,7 @@ async fn post_lp_aggregate(
     Json(aggregate)
 }
 
-fn write_to_image() {
-    
+fn _write_to_image() {
     use image::{ImageBuffer, Luma};
 
     let population_tree = {
