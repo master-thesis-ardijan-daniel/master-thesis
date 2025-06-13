@@ -95,7 +95,6 @@ impl Camera {
         let screen_radius = projection.size.min_element() / 2.0;
         let scaling_ratio = object_screen_radius / screen_radius;
 
-
         let rotation = Quat::from_axis_angle(axis, sensitivity * angle / scaling_ratio).normalize();
 
         self.orientation = (rotation * self.orientation).normalize();
