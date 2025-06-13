@@ -1,5 +1,3 @@
-use std::cmp::max;
-
 use crate::{Bounds, Dataset, Tile};
 use geo::Coord;
 
@@ -42,36 +40,39 @@ impl Dataset for PopulationDataset {
     }
 
     fn downsample(data: &Tile<Self::Type>) -> Tile<Self::Type> {
-        let scale = {
-            let scale_height = data.len() / Self::TILE_SIZE as usize;
-            let scale_width = data[0].len() / Self::TILE_SIZE as usize;
+        let input_height = data.len();
+        let input_width = data[0].len();
 
-            max(scale_height, scale_width)
-        };
+        let output_height = Self::TILE_SIZE as usize;
+        let output_width = Self::TILE_SIZE as usize;
 
-        let height = data.len() / scale;
-        let width = data[0].len() / scale;
+        let scale_y = input_height as f32 / output_height as f32;
+        let scale_x = input_width as f32 / output_width as f32;
 
-        let mut output = vec![vec![0.; width]; height];
+        let mut output = vec![vec![0.0; output_width]; output_height];
 
         #[allow(clippy::needless_range_loop)]
-        for i in 0..height {
-            for j in 0..width {
+        for out_y in 0..output_height {
+            for out_x in 0..output_width {
+                let y0 = (out_y as f32 * scale_y).floor() as usize;
+                let y1 = ((out_y + 1) as f32 * scale_y)
+                    .ceil()
+                    .min(input_height as f32) as usize;
+
+                let x0 = (out_x as f32 * scale_x).floor() as usize;
+                let x1 = ((out_x + 1) as f32 * scale_x)
+                    .ceil()
+                    .min(input_width as f32) as usize;
+
                 let mut sum = 0.0;
 
-                // Sum over the block
-                for dy in 0..scale {
-                    for dx in 0..scale {
-                        let input_i = i * scale + dy;
-                        let input_j = j * scale + dx;
-
-                        if input_i < data.len() && input_j < data[0].len() {
-                            sum += data[input_i][input_j];
-                        }
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        sum += data[y][x];
                     }
                 }
 
-                output[i][j] = sum;
+                output[out_y][out_x] = sum;
             }
         }
 
@@ -98,7 +99,13 @@ impl Dataset for PopulationDataset {
     }
 
     fn bounds(&self) -> Bounds {
-        Bounds::new(Coord { x: -180., y: -90. }, Coord { x: 180., y: 90. })
+        Bounds::new(
+            Coord { x: -180., y: -72. },
+            Coord {
+                x: 179.99874,
+                y: 83.99958,
+            },
+        )
     }
 
     const TILE_SIZE: u32 = 256;

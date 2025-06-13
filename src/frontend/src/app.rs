@@ -19,7 +19,9 @@ pub enum CustomEvent {
 
 #[derive(Debug)]
 pub enum CustomResponseType {
-    TileResponse(TileResponse<[u8; 4]>, (u32, u32, u32)),
+    SatelliteImage(TileResponse<[u8; 4]>, (u32, u32, u32)),
+    Population(TileResponse<f32>, (u32, u32, u32)),
+    LightPollution(TileResponse<f32>, (u32, u32, u32)),
 }
 
 pub struct App {
@@ -154,7 +156,7 @@ impl ApplicationHandler<CustomEvent> for App {
             }
 
             (
-                CustomEvent::HttpResponse(CustomResponseType::TileResponse(tile, id)),
+                CustomEvent::HttpResponse(CustomResponseType::SatelliteImage(tile, id)),
                 Some(state),
             ) => {
                 state.earth_state.update_tile_buffer = true;
@@ -166,9 +168,17 @@ impl ApplicationHandler<CustomEvent> for App {
             //     Some(state),
             // ) => {
             //     state.earth_state.update_tile_buffer = true;
-            //     state.earth_state.insert_tile(id, tile);
+            //     state.earth_state.insert_population_tile(id, tile);
             //     state.window.request_redraw();
             // }
+            (
+                CustomEvent::HttpResponse(CustomResponseType::LightPollution(tile, id)),
+                Some(state),
+            ) => {
+                state.earth_state.update_tile_buffer = true;
+                state.earth_state.insert_lp_tile(id, tile);
+                state.window.request_redraw();
+            }
             _ => {}
         }
     }

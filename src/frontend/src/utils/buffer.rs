@@ -9,12 +9,6 @@ use geo::Coord;
 #[derive(Debug, Copy, Clone)]
 pub struct BufferSlot(pub usize);
 
-// impl AsRef<u32> for BufferSlot {
-//     fn as_ref(&self) -> &u32 {
-//         &self.0
-//     }
-// }
-
 impl Deref for BufferSlot {
     type Target = usize;
 
@@ -27,6 +21,7 @@ impl Deref for BufferSlot {
 pub struct Level {
     step_x: f32,
     step_y: f32,
+    bounds: Bounds,
 }
 
 impl Level {
@@ -34,7 +29,11 @@ impl Level {
         let step_x = bounds.width() / width as f32;
         let step_y = bounds.height() / height as f32;
 
-        Self { step_x, step_y }
+        Self {
+            step_x,
+            step_y,
+            bounds,
+        }
     }
 }
 
@@ -48,21 +47,30 @@ pub struct BufferAllocator {
 
     marked: VecDeque<(u32, u32, u32)>,
     free: VecDeque<BufferSlot>,
+    reset_free: VecDeque<BufferSlot>,
 }
 
 impl BufferAllocator {
-    pub fn new(levels: Vec<Level>, slots: usize) -> Self {
-        let free = (0..slots).map(BufferSlot).collect();
+    pub fn new(levels: Vec<Level>, slots: usize, offset: usize) -> Self {
+        let free: VecDeque<BufferSlot> = (offset..slots + offset).map(BufferSlot).collect();
 
         Self {
             levels,
             current_level: 0,
 
             visible: HashSet::new(),
-            free,
+            free: free.clone(),
+            reset_free: free,
             marked: VecDeque::new(),
             allocated: HashMap::new(),
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.visible = HashSet::new();
+        self.allocated = HashMap::new();
+        self.marked = VecDeque::new();
+        self.free = self.reset_free.clone();
     }
 
     pub fn allocate(&mut self, zoom: u32, points: &[Coord<f32>]) -> Vec<(u32, u32, u32)> {
@@ -73,8 +81,8 @@ impl BufferAllocator {
         for point in points {
             visible.insert((
                 zoom,
-                ((90. - point.y) / level.step_y).floor() as u32,
-                ((180. + point.x) / level.step_x).floor() as u32,
+                ((level.bounds.max().y - point.y) / level.step_y).floor() as u32,
+                ((level.bounds.min().x.abs() + point.x) / level.step_x).floor() as u32,
             ));
         }
 
@@ -91,7 +99,7 @@ impl BufferAllocator {
             .filter(|(z, _, _)| (*z as usize) < self.current_level)
             .collect::<HashSet<_>>();
 
-        if visible.len() < 5 {
+        if visible.len() < 7 {
             self.current_level = (self.current_level + 1).min(self.levels.len().saturating_sub(1));
         }
 

@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use web_time::Instant;
+
 use common::{Bounds, TileMetadata, TileResponse};
 use geo::{coord, Coord, Rect};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupEntry, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Extent3d,
@@ -51,6 +53,16 @@ pub struct EarthState {
 
     buffer_allocator: BufferAllocator,
     tile_map: HashMap<(u32, u32, u32), TileResponse<[u8; 4]>>,
+    // population_buffer_allocator: BufferAllocator,
+    // population_tile_map: HashMap<(u32, u32, u32), TileResponse<f32>>,
+    lp_tile_map: HashMap<(u32, u32, u32), TileResponse<f32>>,
+    lp_buffer_allocator: BufferAllocator,
+    texture_buffer_2: wgpu::Texture,
+    tile_metadata_buffer_2: Buffer,
+    last_buffer_write: Instant,
+    pub render_lp_map: bool,
+    shader_mode_uniform: Buffer,
+    shader_mode: u32,
     // pub query_poi: QueryPoi,
 }
 
@@ -59,7 +71,22 @@ impl EarthState {
         self.tile_map.insert(id, data);
     }
 
+    // pub fn insert_population_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
+    // self.population_tile_map.insert(id, data);
+    // }
+
+    pub fn insert_lp_tile(&mut self, id: (u32, u32, u32), data: TileResponse<f32>) {
+        self.lp_tile_map.insert(id, data);
+    }
+
     pub fn rewrite_tiles(&mut self, queue: &Queue) {
+        if self.last_buffer_write.elapsed().as_millis() < 10 {
+            return;
+        }
+
+        self.last_buffer_write = Instant::now();
+
+        self.update_tile_buffer = false;
         let tiles = std::mem::take(&mut self.tile_map);
 
         for (id, tile) in tiles.into_iter() {
@@ -67,20 +94,70 @@ impl EarthState {
                 continue;
             };
 
-            self.write_a_single_tile_to_buffer(id, tile, slot, queue);
+            let data = tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect::<Vec<u8>>();
+            let metadata = TileMetadata::from((&tile, id.0, 0));
+
+            self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
+        }
+
+        // let tiles = std::mem::take(&mut self.population_tile_map);
+
+        // for (id, tile) in tiles.into_iter() {
+        //     let Some(&slot) = self.population_buffer_allocator.slot(&id) else {
+        //         continue;
+        //     };
+
+        //     let data = tile
+        //         .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+        //         .into_iter()
+        //         .flatten()
+        //         .flat_map(|pixel| pixel.to_ne_bytes())
+        //         .collect::<Vec<u8>>();
+        //     let metadata = TileMetadata::from((&tile, id.0, 1));
+
+        //     self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
+        // }
+
+        let tiles = std::mem::take(&mut self.lp_tile_map);
+
+        for (id, tile) in tiles.into_iter() {
+            let Some(&slot) = self.lp_buffer_allocator.slot(&id) else {
+                continue;
+            };
+
+            let data = tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flat_map(|pixel| pixel.to_ne_bytes())
+                .collect::<Vec<u8>>();
+            let metadata = TileMetadata::from((&tile, id.0, 2));
+
+            self.write_a_single_tile_to_buffer(&data, metadata, slot, queue);
         }
     }
 
     pub fn write_a_single_tile_to_buffer(
         &mut self,
-        id: (u32, u32, u32),
-        new_tile: TileResponse<[u8; 4]>,
+        data: &[u8],
+        metadata: TileMetadata,
         slot: BufferSlot,
         queue: &Queue,
     ) {
+        // let metadata = TileMetadata::from((&new_tile, id.0));
+        let (texture_buffer, tile_metadata_buffer) = if metadata.data_type == 2 {
+            (&self.texture_buffer_2, &self.tile_metadata_buffer_2)
+        } else {
+            (&self.texture_buffer, &self.tile_metadata_buffer)
+        };
         queue.write_texture(
             TexelCopyTextureInfo {
-                texture: &self.texture_buffer,
+                texture: texture_buffer,
                 mip_level: 0,
                 origin: Origin3d {
                     x: 0,
@@ -89,12 +166,7 @@ impl EarthState {
                 },
                 aspect: TextureAspect::All,
             },
-            &new_tile
-                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .collect::<Vec<u8>>(),
+            data,
             TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(TEXTURE_WIDTH * 4),
@@ -107,10 +179,8 @@ impl EarthState {
             },
         );
 
-        let metadata = TileMetadata::from((&new_tile, id.0));
-
         queue.write_buffer(
-            &self.tile_metadata_buffer,
+            tile_metadata_buffer,
             ({ *slot } * size_of::<TileMetadata>()) as u64,
             bytemuck::bytes_of(&metadata),
         );
@@ -123,6 +193,20 @@ impl EarthState {
             label: Some("tile_metadata_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             size: size_of::<TileMetadata>() as u64 * BUFFER_SIZE as u64,
+            mapped_at_creation: false,
+        });
+
+        let tile_metadata_buffer_2 = device.create_buffer(&BufferDescriptor {
+            label: Some("tile_metadata_buffer"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            size: size_of::<TileMetadata>() as u64 * BUFFER_SIZE as u64,
+            mapped_at_creation: false,
+        });
+
+        let shader_mode_uniform = device.create_buffer(&BufferDescriptor {
+            label: Some("shader mode"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            size: size_of::<[u32; 4]>() as u64 * 4,
             mapped_at_creation: false,
         });
 
@@ -147,7 +231,30 @@ impl EarthState {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let texture_buffer_2 = device.create_texture(&TextureDescriptor {
+            label: Some("earth_texture_buffer"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let diffuse_texture_view_2 =
+            texture_buffer_2.create_view(&TextureViewDescriptor::default());
+        let diffuse_sampler_2 = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
@@ -177,7 +284,7 @@ impl EarthState {
                         binding: 0,
                         visibility: ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
@@ -186,11 +293,47 @@ impl EarthState {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
                         visibility: ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
@@ -216,24 +359,83 @@ impl EarthState {
                 },
                 BindGroupEntry {
                     binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view_2),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler_2),
+                },
+                BindGroupEntry {
+                    binding: 4,
                     resource: tile_metadata_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: tile_metadata_buffer_2.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: shader_mode_uniform.as_entire_binding(),
                 },
             ],
         });
 
-        let levels = (0..=7)
-            .map(|level| {
-                Level::new(
-                    Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
-                    2_usize.pow(level),
-                    2_usize.pow(level),
-                )
-            })
-            .collect();
+        let buffer_allocator = {
+            let levels = (0..=7)
+                .map(|level| {
+                    Level::new(
+                        Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                        2_usize.pow(level),
+                        2_usize.pow(level),
+                    )
+                })
+                .collect();
+
+            BufferAllocator::new(levels, BUFFER_SIZE as usize, 0)
+        };
+
+        // let population_buffer_allocator = {
+        //     let levels = (0..=6)
+        //         .map(|level| {
+        //             Level::new(
+        //                 // Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+        //                 Bounds::new(
+        //                     Coord { x: -180., y: -72. },
+        //                     Coord {
+        //                         x: 179.99874,
+        //                         y: 83.99958,
+        //                     },
+        //                 ),
+        //                 2_usize.pow(level),
+        //                 2_usize.pow(level),
+        //             )
+        //         })
+        //         .collect();
+
+        //     BufferAllocator::new(levels, BUFFER_SIZE as usize / 3, BUFFER_SIZE as usize / 3)
+        // };
+        let lp_buffer_allocator = {
+            let levels = (0..=9)
+                .map(|level| {
+                    Level::new(
+                        Bounds::new(Coord { x: -180., y: 90. }, Coord { x: 180., y: -90. }),
+                        2_usize.pow(level),
+                        2_usize.pow(level),
+                    )
+                })
+                .collect();
+
+            BufferAllocator::new(levels, BUFFER_SIZE as usize, 0)
+        };
 
         Self {
             tile_map: HashMap::new(),
-            buffer_allocator: BufferAllocator::new(levels, BUFFER_SIZE as usize),
+            buffer_allocator,
+
+            lp_tile_map: HashMap::new(),
+            lp_buffer_allocator,
+            // population_tile_map: HashMap::new(),
+            // population_buffer_allocator,
             eventloop,
             vertex_buffer,
             index_buffer,
@@ -249,7 +451,13 @@ impl EarthState {
             num_indices: 0,
             texture_buffer,
             texture_bind_group,
+            texture_buffer_2,
             tile_metadata_buffer,
+            tile_metadata_buffer_2,
+            render_lp_map: false,
+            last_buffer_write: web_time::Instant::now(),
+            shader_mode_uniform,
+            shader_mode: 0,
             // query_poi: QueryPoi::new(&device),
         }
     }
@@ -264,6 +472,29 @@ impl EarthState {
                 format: VertexFormat::Float32x3,
             }],
         }
+    }
+
+    pub fn set_render_lp_map(&mut self, render_lp_map: bool, queue: &Queue) {
+        self.render_lp_map = render_lp_map;
+        self.lp_buffer_allocator.reset();
+        self.lp_tile_map = HashMap::new();
+        self.update_tile_buffer = true;
+        if self.render_lp_map {
+            self.shader_mode = 1;
+        } else {
+            self.shader_mode = 0;
+        }
+
+        queue.write_buffer(
+            &self.shader_mode_uniform,
+            0,
+            bytemuck::bytes_of(&[
+                self.shader_mode,
+                self.shader_mode,
+                self.shader_mode,
+                self.shader_mode,
+            ]),
+        );
     }
 
     pub fn set_subdivision_level(&mut self, level: usize) {
@@ -286,7 +517,15 @@ impl EarthState {
                 ),
             };
 
-            self.write_a_single_tile_to_buffer((0, 0, 0), tile, BufferSlot(i), queue);
+            let data = tile
+                .get_padded_tile(TEXTURE_WIDTH, TEXTURE_HEIGHT)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect::<Vec<u8>>();
+
+            let metadata = TileMetadata::from((&tile, 0, 0));
+            self.write_a_single_tile_to_buffer(&data, metadata, BufferSlot(i), queue);
             // #[cfg(feature = "debug")]
             // log::warn!("tile bounds! {:#?}", tile.bounds,);
         }
@@ -311,12 +550,24 @@ impl EarthState {
             &fov_intersections,
         );
 
+        // let new_population_allocations = self.population_buffer_allocator.allocate(
+        //     self.population_buffer_allocator.current_level as u32,
+        //     &fov_intersections,
+        // );
+
+        let new_lp_allocations = self.lp_buffer_allocator.allocate(
+            self.lp_buffer_allocator.current_level as u32,
+            &fov_intersections,
+        );
+
+        let should_fetch_lp_tiles = self.render_lp_map;
+
         let proxy = self.eventloop.clone();
         wasm_bindgen_futures::spawn_local(async move {
             for tile_id in new_allocations {
                 let tile: TileResponse<[u8; 4]> = bincode::deserialize(
                     &gloo_net::http::Request::get(&format!(
-                        "/tile/{}/{}/{}",
+                        "/sat_tile/{}/{}/{}",
                         tile_id.0, tile_id.1, tile_id.2
                     ))
                     // .cache(web_sys::RequestCache::ForceCache)
@@ -331,7 +582,57 @@ impl EarthState {
 
                 proxy
                     .send_event(CustomEvent::HttpResponse(
-                        crate::app::CustomResponseType::TileResponse(tile, tile_id),
+                        crate::app::CustomResponseType::SatelliteImage(tile, tile_id),
+                    ))
+                    .unwrap();
+            }
+
+            // for tile_id in new_population_allocations {
+            //     let tile: TileResponse<f32> = bincode::deserialize(
+            //         &gloo_net::http::Request::get(&format!(
+            //             "/pop_tile/{}/{}/{}",
+            //             tile_id.0, tile_id.1, tile_id.2
+            //         ))
+            //         .cache(web_sys::RequestCache::ForceCache)
+            //         .send()
+            //         .await
+            //         .unwrap()
+            //         .binary()
+            //         .await
+            //         .unwrap(),
+            //     )
+            //     .unwrap();
+
+            //     proxy
+            //         .send_event(CustomEvent::HttpResponse(
+            //             crate::app::CustomResponseType::PopulationTileResponse(tile, tile_id),
+            //         ))
+            //         .unwrap();
+            // }
+            //
+            if !should_fetch_lp_tiles {
+                return;
+            }
+
+            for tile_id in new_lp_allocations {
+                let tile: TileResponse<f32> = bincode::deserialize(
+                    &gloo_net::http::Request::get(&format!(
+                        "/light_p_tile/{}/{}/{}",
+                        tile_id.0, tile_id.1, tile_id.2
+                    ))
+                    .cache(web_sys::RequestCache::ForceCache)
+                    .send()
+                    .await
+                    .unwrap()
+                    .binary()
+                    .await
+                    .unwrap(),
+                )
+                .unwrap();
+
+                proxy
+                    .send_event(CustomEvent::HttpResponse(
+                        crate::app::CustomResponseType::LightPollution(tile, tile_id),
                     ))
                     .unwrap();
             }
@@ -341,7 +642,6 @@ impl EarthState {
     pub fn update(&mut self, queue: &Queue, device: &Device) {
         if self.update_tile_buffer {
             self.rewrite_tiles(queue);
-            self.update_tile_buffer = false;
         }
 
         if self.current_subdivision_level == self.previous_subdivision_level
@@ -448,52 +748,36 @@ fn convert_point_on_surface_to_lat_lon(point: Point) -> Coord<f32> {
     coord! {x:lon,y:lat}
 }
 
-pub fn calculate_camera_earth_view_bounding_box(
+fn calculate_camera_earth_view_bounding_box(
     camera_projection: &Projection,
     camera: &Camera,
     earth_position: Point,
 ) -> Vec<Coord<f32>> {
-    let mut n_rays: usize = 6;
-
+    const N_RAYS: usize = 6;
     let inv_view_proj = (camera_projection.calc_matrix() * camera.calc_matrix()).inverse();
     let cam_pos = inv_view_proj.project_point3(Vec3::ZERO);
+    let cam_dir = -cam_pos.normalize();
+    let (orth1, orth2) = cam_dir.any_orthonormal_pair();
 
-    if (cam_pos - earth_position).length() > 2. {
-        n_rays = 1;
+    let fov = camera_projection.fovy;
+    let half_fov = fov / 2.0;
+
+    let mut surface_points = Vec::with_capacity(N_RAYS * N_RAYS);
+    let angle_step = fov / (N_RAYS - 1) as f32;
+
+    let mut angle_offsets = [0.0f32; N_RAYS];
+    for (i, entry) in angle_offsets.iter_mut().enumerate().take(N_RAYS) {
+        let mut angle_offset = -half_fov + i as f32 * angle_step;
+        std::mem::swap(entry, &mut angle_offset);
     }
 
-    let view_matrix = camera.calc_matrix();
-
-    let inv_view = view_matrix.inverse();
-    let right = inv_view.transform_vector3(Vec3::X).normalize();
-    let up = inv_view.transform_vector3(Vec3::Y).normalize();
-    let forward = inv_view.transform_vector3(Vec3::Z).normalize(); // forward is -Z
-
-    let fov_y = camera_projection.fovy;
-    let aspect = camera_projection.aspect();
-
-    let half_fov_y = fov_y / 2.0;
-    let half_fov_x = (half_fov_y.tan() * aspect).atan();
-
-    let v_step = fov_y / (n_rays - 1) as f32;
-    let h_step = (half_fov_x * 2.0) / (n_rays - 1) as f32;
-
-    let mut surface_points = Vec::with_capacity(n_rays * n_rays);
-
-    for i in 0..n_rays {
-        let v_angle = -half_fov_y + i as f32 * v_step;
-        let sin_v = v_angle.sin();
-        let cos_v = v_angle.cos();
-
-        for j in 0..n_rays {
-            let h_angle = -half_fov_x + j as f32 * h_step;
-            let sin_h = h_angle.sin();
-            let cos_h = h_angle.cos();
-
-            let dir = (forward * cos_v * cos_h + right * sin_h + up * sin_v * cos_h).normalize();
-
-            if let Some(hit) = ray_intersects_sphere(cam_pos, dir, earth_position, 1.0) {
-                surface_points.push(convert_point_on_surface_to_lat_lon(hit));
+    for &angle_v in &angle_offsets {
+        let qv = Quat::from_axis_angle(orth2, angle_v);
+        for &angle_u in &angle_offsets {
+            let qu = Quat::from_axis_angle(orth1, angle_u);
+            let ray_dir = (qu * qv * cam_dir).normalize();
+            if let Some(point) = ray_intersects_sphere(cam_pos, ray_dir, earth_position, 1.0) {
+                surface_points.push(convert_point_on_surface_to_lat_lon(point));
             }
         }
     }

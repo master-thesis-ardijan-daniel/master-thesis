@@ -41,12 +41,89 @@ struct TileMetadata {
     width: u32,
     height: u32,
     level: u32,
-    pad_2: u32,
+    data_type: u32,
 }
+
 
 @group(1) @binding(0) var t_diffuse: texture_2d_array<f32>; 
 @group(1) @binding(1) var s_diffuse: sampler;
-@group(1) @binding(2) var<uniform> metadata: Metadata;
+@group(1) @binding(2) var t2_diffuse: texture_2d_array<f32>; 
+@group(1) @binding(3) var s2_diffuse: sampler;
+@group(1) @binding(4) var<uniform> metadata: Metadata;
+@group(1) @binding(5) var<uniform> metadata_2: Metadata;
+@group(1) @binding(6) var<uniform> shader_mode: vec4<u32>;
+
+
+struct SampledTexture{
+    highest_z: u32,
+    sample: vec2<f32>,
+    layer: u32,
+    has_value: bool,
+}
+
+fn rgba_to_f32(rgba: vec4<f32>)->f32{
+    let first = u32(rgba.r*255.);
+    let second = u32(rgba.g*255.);
+    let third = u32(rgba.b*255.);
+    let fourth = u32(rgba.a*255.);
+
+    let total:u32 = first | (second<<8)| (third<<16)| (fourth<<24);
+
+    return bitcast<f32>(total);
+}
+
+fn sample_rgba(sample: SampledTexture)->vec4<f32>{
+    return textureSample(
+        t_diffuse,
+        s_diffuse,
+        sample.sample,
+        sample.layer
+    );
+}
+
+fn sample_2_f32(sample: SampledTexture)->f32{
+    let rgba= textureSample(
+        t2_diffuse,
+        s2_diffuse,
+        sample.sample,
+        sample.layer
+    );
+
+    return rgba_to_f32(rgba);
+}
+
+fn tile_normalized(tile:TileMetadata)-> TileMetadata{
+        let nw_lat = (tile.nw_lat + 90.0)  / 180.0;
+        let nw_lon = (tile.nw_lon + 180.0) / 360.0;
+        let se_lat = (tile.se_lat + 90.0)  / 180.0;
+        let se_lon = (tile.se_lon + 180.0) / 360.0;
+
+        return TileMetadata(
+            nw_lat,
+            nw_lon,
+            se_lat,
+            se_lon,
+            tile.width,
+            tile.height,
+            tile.level,
+            tile.data_type,
+        );
+
+}
+
+fn intersects_with_tile(lat:f32, lon:f32, tile:TileMetadata)->bool{
+    return !(lat > tile.nw_lat || lat < tile.se_lat || lon < tile.nw_lon || lon > tile.se_lon);
+}
+
+fn calc_uv(lat:f32, lon:f32, tile:TileMetadata)->vec2<f32>{
+    let u = (lon - tile.nw_lon) / (tile.se_lon - tile.nw_lon);
+    let v = 1.-(lat - tile.se_lat) / (tile.nw_lat - tile.se_lat);
+
+
+    let scaled_u = u * f32(tile.width)/256.;
+    let scaled_v = v * f32(tile.height)/256.;
+    return vec2<f32>(scaled_u,scaled_v);
+}
 
 
 @fragment
@@ -56,60 +133,103 @@ fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let lon = (atan2(-pos.x, pos.y) / (2.0 * PI)) +0.5;
     let lat = (asin(-pos.z) / PI)+0.5 ;
 
-    var highest_z = u32(0);
-    var found_sample = false;
-    var sample = vec4<f32>(); 
+    let should_render_lp = shader_mode[0]==1;
 
-    for (var layer = 0; layer < 256 ; layer++){
-        let metadata = metadata.tiles[layer];
+    var samples: array<SampledTexture, 2> = array<SampledTexture, 2>(
+        SampledTexture(0u, vec2<f32>(0.0), 0u, false),
+        SampledTexture(0u, vec2<f32>(0.0), 0u, false),
+    );   
 
-        let nw_lat = (metadata.nw_lat + 90.0)  / 180.0;
-        let nw_lon = (metadata.nw_lon + 180.0) / 360.0;
-        let se_lat = (metadata.se_lat + 90.0)  / 180.0;
-        let se_lon = (metadata.se_lon + 180.0) / 360.0;
+    for (var layer:u32 = 0; layer < 256 ; layer++){
+        let metadata = tile_normalized(metadata.tiles[layer]);
+        let metadata_2 = tile_normalized(metadata_2.tiles[layer]);
 
-        if (lat > nw_lat || lat < se_lat || lon < nw_lon || lon > se_lon) {
-            continue;
+        let tile_intersects = intersects_with_tile(lat,lon,metadata);
+        let tile_2_intersects = intersects_with_tile(lat,lon,metadata_2);
+
+        if tile_intersects{
+            if (samples[0].highest_z<= metadata.level){
+                samples[0].has_value = true;
+                samples[0].sample = calc_uv(lat,lon,metadata);
+                samples[0].layer = layer;
+            }
         }
 
-        let u = (lon - nw_lon) / (se_lon - nw_lon);
-        let v = 1.-(lat - se_lat) / (nw_lat - se_lat);
-
-
-        let scaled_u = u * f32(metadata.width)/256.;
-        let scaled_v = v * f32(metadata.height)/256.;
-
-        if (highest_z <= metadata.level) {
-            found_sample = true;
-            highest_z = metadata.level;
-            sample = textureSample(
-                t_diffuse,
-                s_diffuse,
-                vec2<f32>(scaled_u,scaled_v ),
-                layer
-            );
-        };
+        if tile_2_intersects && should_render_lp {
+            if (samples[1].highest_z<= metadata_2.level){
+                samples[1].has_value = true;
+                samples[1].sample = calc_uv(lat,lon,metadata_2);
+                samples[1].layer = layer;
+            }
+        }
     }
 
-    if found_sample{
-        return sample;
+    if (!samples[0].has_value){
+        discard;
     }
 
-    return vec4<f32>(0., lon, lat, 1.0);
+
+    var return_color = sample_rgba(samples[0]);
+    
+
+    // if (samples[1].has_value){
+    //     let pop_value = sample_f32(samples[1]);
+
+    //     let pop_color = sample_gradient(pop_value,1000000.,1);
+
+    //     return_color=return_color*0.01+pop_color;
+    // }
+
+    if (samples[1].has_value){
+        let lp_value = sample_2_f32(samples[1]);
+
+        let lp_color = sample_gradient(lp_value,30.,2);
+
+        return_color=return_color*0.03+lp_color;
+    }
+
+    return return_color;
 }
 
-// @fragment
-// fn fs_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
-//     const PI: f32 = 3.14159265358979323846264338327950288;
 
-//     let pos = normalize(in.pos);
-//     let u = atan2(pos.x, -pos.y) / (2. * PI) + 0.5;
-//     let v = asin(pos.z)/PI  + 0.5;
+fn sample_gradient(i: f32, max_value:f32, gradient_index: u32)-> vec4<f32>{
 
-//     return vec4<f32>(u, v, 0.0, 1.0); // Debug color based on lon/lat
-    // return textureSample(t_diffuse, s_diffuse, vec2<f32>(u, v), 0);
-    // return vec4<f32>(in.pos, 1.0);
-// }
+    const grad_1 = array<vec4<f32>, 3>(
+        vec4<f32>(0., 0., 0.,0.),
+        vec4<f32>(0., 0.4, 1.,1.), 
+        vec4<f32>(0., 0.4, 1.,1.) 
+    );
+    const grad_2 = array<vec4<f32>, 3>(
+        vec4<f32>(0., 0., 0.,0.),
+        vec4<f32>(0.7, 0.7, 0.2,1.), 
+        vec4<f32>(1., 1.0, 1.,1.) 
+    );
+
+    var gradient: array<vec4<f32>, 3>;
+    if (gradient_index == 1u) {
+        gradient = grad_1;
+    } else {
+        gradient = grad_2;
+    }
+
+
+
+    const n_colors = 4.;
+
+    let sample_location = (i/max_value)*(n_colors-1.);
+    let index = u32(sample_location);
+    let mix_val = fract(sample_location);
+
+    let c1 = gradient[index];
+    let c2 = gradient[index + 1];
+
+    return mix(c1,c2,mix_val);
+}
+
+
+
+
+
 
 @fragment
 fn fs_wireframe(in: VertexOutput) -> @location(0) vec4<f32> {
