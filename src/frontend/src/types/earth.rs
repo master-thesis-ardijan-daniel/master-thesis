@@ -567,7 +567,7 @@ impl EarthState {
             for tile_id in new_allocations {
                 let tile: TileResponse<[u8; 4]> = bincode::deserialize(
                     &gloo_net::http::Request::get(&format!(
-                        "/tile/{}/{}/{}",
+                        "/sat_tile/{}/{}/{}",
                         tile_id.0, tile_id.1, tile_id.2
                     ))
                     .cache(web_sys::RequestCache::ForceCache)
@@ -617,7 +617,7 @@ impl EarthState {
             for tile_id in new_lp_allocations {
                 let tile: TileResponse<f32> = bincode::deserialize(
                     &gloo_net::http::Request::get(&format!(
-                        "/lp_tile/{}/{}/{}",
+                        "/light_p_tile/{}/{}/{}",
                         tile_id.0, tile_id.1, tile_id.2
                     ))
                     .cache(web_sys::RequestCache::ForceCache)
