@@ -38,14 +38,14 @@ where
         D::Type: Pod,
         D::AggregateType: Pod,
     {
-        let reader = Reader::new(&self.data);
+        let mut reader = Reader::new(&self.data);
 
         fn inner<'a, T, U>(
             level: u32,
             current_level: u32,
             pointer: &Pointer<T>,
             area: Bounds,
-            reader: &Reader<'a>,
+            reader: &mut Reader<'a>,
         ) -> Option<Vec<TileRefResponse<'a, T>>>
         where
             T: Pod,
@@ -81,7 +81,7 @@ where
             }
         }
 
-        inner::<_, D::AggregateType>(level, 0, &Pointer::default(), area, &reader).unwrap()
+        inner::<_, D::AggregateType>(level, 0, &Pointer::default(), area, &mut reader).unwrap()
     }
 
     pub fn get_tile(&self, x: usize, y: usize, z: usize) -> Option<TileRefResponse<'_, D::Type>>
@@ -89,7 +89,7 @@ where
         D::Type: Pod,
         D::AggregateType: Pod,
     {
-        let reader = Reader::new(&self.data);
+        let mut reader = Reader::new(&self.data);
 
         let mut current = reader.read::<TileNode<D::Type>>();
 
