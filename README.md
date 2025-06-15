@@ -7,8 +7,6 @@
 # [globe.devmode.app](https://globe.devmode.app)
 
 
-# Future features:
-
 ![image](https://github.com/user-attachments/assets/792d936c-907e-40b4-93bc-bab2e0178e03)
 
 
